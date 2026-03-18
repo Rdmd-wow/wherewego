@@ -1,0 +1,3 @@
+# WoW SavedVariables (generated at runtime, not part of the addon)
+*.lua.bak
+WTF/

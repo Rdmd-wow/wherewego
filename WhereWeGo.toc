@@ -1,0 +1,10 @@
+## Interface: 120000
+## Title: WhereWeGo
+## Notes: Shows the group listing title when you join a party/raid from the Group Finder
+## IconTexture: Interface\Icons\INV_Misc_Eye_02
+## Author: Rdmd
+## Version: 1.0.0
+## SavedVariables: WhereWeGoDB
+
+UI.lua
+Core.lua
