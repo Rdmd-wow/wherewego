@@ -1,0 +1,8 @@
+package-as: WhereWeGo
+
+ignore:
+  - .pkgmeta
+  - .gitignore
+  - .github
+  - README.md
+  - LICENSE
