@@ -188,7 +188,7 @@ local function BuildAndShowNote()
     local note = WhereWeGoDB.noteBase
     local leader = WhereWeGoDB.currentLeader
     if leader and leader ~= "" then
-        note = note .. "\n|cff99bbff[파티장] " .. leader .. "|r"
+        note = note .. "\n|cff99bbff[Leader] " .. leader .. "|r"
     end
     WhereWeGoDB.currentNote = note
     ns:ShowNote(note)
@@ -234,9 +234,9 @@ local function CaptureListingInfo(searchResultID)
         table.insert(parts, "|cffcccccc" .. enName .. "|r")
     end
 
-    -- Zone / location  ([위치] is plain Korean text — always renders)
+    -- Zone / location  ([Location] is plain Korean text — always renders)
     if zone then
-        local zoneLine = "|cffddaa00[위치] " .. zone
+        local zoneLine = "|cffddaa00[Location] " .. zone
         if zoneEn then
             zoneLine = zoneLine .. " / " .. zoneEn
         end
@@ -312,7 +312,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                         end
                         local zoneKo, zoneEn = GetDungeonZone(actName)
                         if zoneKo then
-                            local zoneLine = "|cffddaa00[위치] " .. zoneKo
+                            local zoneLine = "|cffddaa00[Location] " .. zoneKo
                             if zoneEn then zoneLine = zoneLine .. " / " .. zoneEn end
                             table.insert(parts, zoneLine .. "|r")
                         end
@@ -367,7 +367,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                     end
                     local zoneKo, zoneEn = GetDungeonZone(actName)
                     if zoneKo then
-                        local zoneLine = "|cffddaa00[위치] " .. zoneKo
+                        local zoneLine = "|cffddaa00[Location] " .. zoneKo
                         if zoneEn then zoneLine = zoneLine .. " / " .. zoneEn end
                         table.insert(parts, zoneLine .. "|r")
                     end
@@ -419,7 +419,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             table.insert(parts, "|cff4499ff[LFG]|r " .. dungeonName)
             local zoneKo, zoneEn = GetDungeonZone(dungeonName)
             if zoneKo then
-                local zoneLine = "|cffddaa00[위치] " .. zoneKo
+                local zoneLine = "|cffddaa00[Location] " .. zoneKo
                 if zoneEn then zoneLine = zoneLine .. " / " .. zoneEn end
                 table.insert(parts, zoneLine .. "|r")
             end
