@@ -57,18 +57,23 @@ closeBtn:SetScript("OnClick", function()
 end)
 
 ------------------------------------------------------------------------
--- Auto-resize frame height to fit content
+-- Auto-resize frame to fit content without wrapping any line
 ------------------------------------------------------------------------
 local function ResizeFrame()
-    local textHeight = titleText:GetStringHeight() or 14
-    local headerHeight = header:GetStringHeight() or 12
-    local totalHeight = headerHeight + textHeight + 22
-
+    -- titleText width is temporarily set to 2000 (unconstrained) so
+    -- GetStringWidth() returns the true widest-line width, not wrapped width.
+    local textWidth   = titleText:GetStringWidth() or 60
     local headerWidth = header:GetStringWidth() or 60
-    local textWidth = titleText:GetStringWidth() or 60
     local contentWidth = math.max(headerWidth, textWidth)
+
+    -- Pin the FontString to exactly the measured width so it never wraps.
+    titleText:SetWidth(contentWidth)
+
+    local textHeight   = titleText:GetStringHeight() or 14
+    local headerHeight = header:GetStringHeight() or 12
+    local totalHeight  = headerHeight + textHeight + 22
     -- 8px left pad + 26px right (close button) + 8px extra
-    local totalWidth = contentWidth + 42
+    local totalWidth   = contentWidth + 42
 
     frame:SetSize(math.max(120, totalWidth), math.max(50, totalHeight))
 end
@@ -79,10 +84,13 @@ end
 ns.frame = frame
 
 function ns:ShowNote(text)
+    -- Set width to unconstrained first so measurement in ResizeFrame
+    -- reflects the true unwrapped line widths, not a pre-wrapped layout.
+    titleText:SetWidth(2000)
     titleText:SetText(text or "")
     self:RestorePosition()
     frame:Show()
-    C_Timer.After(0.05, ResizeFrame) -- defer so text is laid out
+    C_Timer.After(0.05, ResizeFrame) -- defer one frame so text is laid out
 end
 
 function ns:HideNote()
