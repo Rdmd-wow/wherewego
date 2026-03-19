@@ -18,4 +18,4 @@ jobs:
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
-          CURSE_ID: ${{ secrets.CURSE_ID }}
+          CF_GAME_VERSION: "12.0.0"
