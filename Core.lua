@@ -342,14 +342,15 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         WhereWeGoDB.currentLeader = nil
 
         if WhereWeGoDB.pendingNoteBase then
+            -- Store as fallback but do NOT show yet — wait for the timer to confirm fresh data.
             WhereWeGoDB.noteBase = WhereWeGoDB.pendingNoteBase
             WhereWeGoDB.pendingNoteBase = nil
             WhereWeGoDB.currentLeader = pendingLeader
             pendingLeader = nil
-            BuildAndShowNote()
         end
 
         -- Always run this timer: corrects leader + refreshes dungeon info for direct invites.
+        -- Note is only shown here, never before — avoids stale data flash on fast clicks.
         -- GetActiveEntryInfo is readable by any group member if the group has a listing.
         C_Timer.After(1.5, function()
             if not (IsInGroup() or IsInRaid()) then return end
