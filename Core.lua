@@ -198,11 +198,19 @@ end
 -- Shared capture helper — builds note body (WITHOUT leader) from a search result
 ------------------------------------------------------------------------
 -- Placeholder group titles to filter out
-local PLACEHOLDERS = {
-    ["무엇인가"] = true, ["something"] = true, [""] = true,
-    ["untitled"] = true, ["모집 중"] = true, ["0"] = true,
-    ["m0"] = true, ["m+"] = true,
+local PLACEHOLDER_LIST = {
+    "무엇인가", "something", "untitled", "모집 중", "m0", "m+", "0",
 }
+local function IsPlaceholder(title)
+    if not title or title == "" then return true end
+    -- Use tostring() to force kstring → real Lua string for reliable comparison
+    local tl = tostring(title):lower():gsub("^%s+", ""):gsub("%s+$", "")
+    if tl == "" then return true end
+    for _, p in ipairs(PLACEHOLDER_LIST) do
+        if tl == p or tl:find(p, 1, true) then return true end
+    end
+    return false
+end
 
 local function CaptureListingInfo(searchResultID)
     if not C_LFGList or not C_LFGList.GetSearchResultInfo then return end
@@ -244,9 +252,8 @@ local function CaptureListingInfo(searchResultID)
     end
 
     -- Listing title (skip generic placeholders)
-    local titleLower = title:lower()
-    if title ~= "" and title ~= actName and not PLACEHOLDERS[titleLower] then
-        table.insert(parts, title)
+    if not IsPlaceholder(title) and title ~= actName then
+        table.insert(parts, "|cffffffff[Title]|r " .. tostring(title))
     end
 
     -- Leader comment (guard: comment may be number 0 from API)
@@ -349,30 +356,33 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             pendingLeader = nil
         end
 
-        -- Always run this timer: corrects leader + refreshes dungeon info for direct invites.
-        -- Note is only shown here, never before — avoids stale data flash on fast clicks.
-        -- GetActiveEntryInfo is readable by any group member if the group has a listing.
+        -- Always run this timer: corrects leader + fills dungeon info for direct invites.
+        -- If we already have noteBase from ApplyToGroup, keep it — only use GetActiveEntryInfo
+        -- as a fallback for direct invites (where pendingNoteBase was nil).
+        local hadPendingNote = WhereWeGoDB.noteBase ~= nil
         C_Timer.After(1.5, function()
             if not (IsInGroup() or IsInRaid()) then return end
 
-            local entryInfo = C_LFGList and C_LFGList.GetActiveEntryInfo and C_LFGList.GetActiveEntryInfo()
-            if entryInfo and entryInfo.activityIDs and #entryInfo.activityIDs > 0 then
-                local actName = GetActivityName(entryInfo.activityIDs[1])
-                if actName and actName ~= "" then
-                    local parts = {}
-                    table.insert(parts, "|cff00cc66" .. actName .. "|r")
-                    local enName = TranslateToEnglish(actName)
-                    if enName and enName ~= actName then
-                        table.insert(parts, "|cffcccccc" .. enName .. "|r")
+            -- Only attempt dungeon lookup if we have no info yet (direct invite)
+            if not hadPendingNote then
+                local entryInfo = C_LFGList and C_LFGList.GetActiveEntryInfo and C_LFGList.GetActiveEntryInfo()
+                if entryInfo and entryInfo.activityIDs and #entryInfo.activityIDs > 0 then
+                    local actName = GetActivityName(entryInfo.activityIDs[1])
+                    if actName and actName ~= "" then
+                        local parts = {}
+                        table.insert(parts, "|cff00cc66" .. actName .. "|r")
+                        local enName = TranslateToEnglish(actName)
+                        if enName and enName ~= actName then
+                            table.insert(parts, "|cffcccccc" .. enName .. "|r")
+                        end
+                        local zoneKo, zoneEn = GetDungeonZone(actName)
+                        if zoneKo then
+                            local zoneLine = "|cffddaa00[Location] " .. zoneKo
+                            if zoneEn then zoneLine = zoneLine .. " / " .. zoneEn end
+                            table.insert(parts, zoneLine .. "|r")
+                        end
+                        WhereWeGoDB.noteBase = table.concat(parts, "\n")
                     end
-                    local zoneKo, zoneEn = GetDungeonZone(actName)
-                    if zoneKo then
-                        local zoneLine = "|cffddaa00[Location] " .. zoneKo
-                        if zoneEn then zoneLine = zoneLine .. " / " .. zoneEn end
-                        table.insert(parts, zoneLine .. "|r")
-                    end
-                    -- Overwrite with verified fresh data
-                    WhereWeGoDB.noteBase = table.concat(parts, "\n")
                 end
             end
 
