@@ -493,7 +493,9 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         print("|cff4499ffWhereWeGo:|r Frame position reset.")
 
     elseif msg == "debug" then
-        print("|cff4499ffWhereWeGo Debug:|r")
+        local version = C_AddOns and C_AddOns.GetAddOnMetadata and
+            C_AddOns.GetAddOnMetadata("WhereWeGo", "Version") or "unknown"
+        print("|cff4499ffWhereWeGo Debug:|r  version=" .. tostring(version) .. "  locale=" .. tostring(CLIENT_LOCALE))
         print("  GetLFGActivityFullNameFromID: " .. tostring(GetLFGActivityFullNameFromID ~= nil))
         print("  GetActivityInfoTable: " .. tostring(C_LFGList and C_LFGList.GetActivityInfoTable ~= nil))
         print("  GetActivityInfo: " .. tostring(C_LFGList and C_LFGList.GetActivityInfo ~= nil))
