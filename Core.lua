@@ -54,7 +54,7 @@ local KO_TO_EN_DIFFICULTY = {
 }
 
 local DUNGEON_ZONE = {
-    -- Midnight new dungeons
+    -- Midnight new dungeons (Korean keys)
     ["윈드러너 첨탑"]       = { "은빛소나무 숲", "Silverpine Forest" },
     ["마법학자의 정원"]     = { "은빛달 도시", "Silvermoon City" },
     ["죽음의 골목"]         = { "은빛달 도시", "Silvermoon City" },
@@ -64,14 +64,14 @@ local DUNGEON_ZONE = {
     ["공결탑 제니스"]       = { "공허폭풍", "Void Storm" },
     ["눈부신 골짜기"]       = { "은빛소나무 숲", "Silverpine Forest" },
     ["공허흉터 투기장"]     = { "공허폭풍", "Void Storm" },
-    -- Legacy season rotation
+    -- Legacy season rotation (Korean keys)
     ["알게타르 대학"]       = { "탈드라서스", "Thaldraszus" },
     ["알게타르 학원"]       = { "탈드라서스", "Thaldraszus" },
     ["사론의 구덩이"]       = { "얼음왕관 성채", "Icecrown Citadel" },
     ["삼두정의 권좌"]       = { "아르거스", "Argus" },
     ["삼두정의 옥좌"]       = { "아르거스", "Argus" },
     ["하늘탑"]             = { "탈라도르", "Talador" },
-    -- The War Within (TWW) dungeons
+    -- The War Within (Korean keys)
     ["아라카라, 메아리의 도시"] = { "아즈-카라즈", "Azj-Kahet" },
     ["착암기 광산"]         = { "켁나스", "Khaz Algar" },
     ["시티 오브 스레드"]     = { "아즈-카라즈", "Azj-Kahet" },
@@ -81,40 +81,63 @@ local DUNGEON_ZONE = {
     ["왕노릇의 대가"]       = { "쿨 티라스", "Kul Tiras" },
     ["하급 카라잔"]         = { "카라잔", "Karazhan" },
     ["상급 카라잔"]         = { "카라잔", "Karazhan" },
-    -- TWW raids
+    -- TWW raids (Korean keys)
     ["해방의 지하"]         = { "아제로스 지하", "Undermine" },
     ["네루바르 궁전"]       = { "아즈-카라즈", "Azj-Kahet" },
+    -- English keys (for EN client users)
+    ["Windrunner Spire"]        = { "Silverpine Forest", "Silverpine Forest" },
+    ["Magisters' Terrace"]      = { "Silvermoon City", "Silvermoon City" },
+    ["Death's Row"]             = { "Silvermoon City", "Silvermoon City" },
+    ["Nalorakk's Den"]          = { "Zul'Aman", "Zul'Aman" },
+    ["Maisara Caverns"]         = { "Zul'Aman", "Zul'Aman" },
+    ["Nexus-Point Xenas"]       = { "Void Storm", "Void Storm" },
+    ["Shining Vale"]            = { "Silverpine Forest", "Silverpine Forest" },
+    ["Voidscar Arena"]          = { "Void Storm", "Void Storm" },
+    ["Algeth'ar Academy"]       = { "Thaldraszus", "Thaldraszus" },
+    ["Pit of Saron"]            = { "Icecrown Citadel", "Icecrown Citadel" },
+    ["Seat of the Triumvirate"] = { "Argus", "Argus" },
+    ["Skyreach"]                = { "Talador", "Talador" },
+    ["Ara-Kara, City of Echoes"]= { "Azj-Kahet", "Azj-Kahet" },
+    ["The Stonevault"]          = { "Khaz Algar", "Khaz Algar" },
+    ["City of Threads"]         = { "Azj-Kahet", "Azj-Kahet" },
+    ["Darkflame Cleft"]         = { "The Ringing Deeps", "The Ringing Deeps" },
+    ["The Dawnbreaker"]         = { "Azj-Kahet", "Azj-Kahet" },
+    ["Atal'Dazar"]              = { "Zuldazar", "Zuldazar" },
+    ["Siege of Boralus"]        = { "Kul Tiras", "Kul Tiras" },
+    ["Liberation of Undermine"] = { "Undermine", "Undermine" },
+    ["Nerub-ar Palace"]         = { "Azj-Kahet", "Azj-Kahet" },
 }
 
+local CLIENT_LOCALE = GetLocale and GetLocale() or "enUS"
+
 local function TranslateToEnglish(localizedName)
+    -- No translation needed for English clients
+    if CLIENT_LOCALE:match("^en") then return nil end
     if not localizedName or localizedName == "" then return nil end
 
-    -- Try to extract difficulty suffix in parentheses: "윈드러너 첨탑 (신화)"
     local baseName, diffKo = localizedName:match("^(.-)%s*%((.+)%)%s*$")
-    if not baseName then
-        baseName = localizedName
-    end
+    if not baseName then baseName = localizedName end
 
     local enBase = KO_TO_EN_DUNGEON[strtrim(baseName)]
     if not enBase then return nil end
 
     if diffKo then
         local enDiff = KO_TO_EN_DIFFICULTY[strtrim(diffKo)]
-        if enDiff then
-            return enBase .. " (" .. enDiff .. ")"
-        end
-        return enBase .. " (" .. diffKo .. ")"
+        return enBase .. " (" .. (enDiff or diffKo) .. ")"
     end
-
     return enBase
 end
 
 local function GetDungeonZone(localizedName)
-    if not localizedName or localizedName == "" then return nil, nil end
+    if not localizedName or localizedName == "" then return nil end
     local baseName = localizedName:match("^(.-)%s*%(") or localizedName
     local entry = DUNGEON_ZONE[strtrim(baseName)]
-    if entry then return entry[1], entry[2] end
-    return nil, nil
+    if not entry then return nil end
+    -- For Korean clients show "koZone / enZone"; for others show just English zone
+    if CLIENT_LOCALE == "koKR" and entry[1] ~= entry[2] then
+        return entry[1] .. " / " .. entry[2]
+    end
+    return entry[2]
 end
 
 -- Returns realm-qualified name of the actual current group leader
@@ -199,7 +222,20 @@ end
 ------------------------------------------------------------------------
 -- Placeholder group titles to filter out
 local PLACEHOLDER_LIST = {
-    "무엇인가", "something", "untitled", "모집 중", "m0", "m+", "0",
+    -- Korean
+    "무엇인가",
+    -- English
+    "something", "untitled", "m0", "m+",
+    -- German
+    "etwas",
+    -- French
+    "quelque chose",
+    -- Chinese (Simplified/Traditional)
+    "某事", "某些事情",
+    -- Spanish/Portuguese
+    "algo",
+    -- Russian
+    "что-то",
 }
 local function IsPlaceholder(title)
     if not title or title == "" then return true end
@@ -228,27 +264,18 @@ local function CaptureListingInfo(searchResultID)
 
     local actName = GetActivityName(actID)
     local enName = TranslateToEnglish(actName)
-    local zone, zoneEn = GetDungeonZone(actName)
+    local zone = GetDungeonZone(actName)
     pendingLeader = info.leaderName  -- saved separately; NOT embedded in the note body
     local parts = {}
 
-    -- Activity name first (primary info — the actual dungeon/raid name)
     if actName ~= "" then
         table.insert(parts, "|cff00cc66" .. actName .. "|r")
     end
-
-    -- English translation only if the name is different (i.e. client is non-English)
     if enName and enName ~= actName then
         table.insert(parts, "|cffcccccc" .. enName .. "|r")
     end
-
-    -- Zone / location  ([Location] is plain Korean text — always renders)
     if zone then
-        local zoneLine = "|cffddaa00[Location] " .. zone
-        if zoneEn then
-            zoneLine = zoneLine .. " / " .. zoneEn
-        end
-        table.insert(parts, zoneLine .. "|r")
+        table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r")
     end
 
     -- Listing title (skip generic placeholders)
@@ -317,11 +344,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                         if enName and enName ~= actName then
                             table.insert(parts, "|cffcccccc" .. enName .. "|r")
                         end
-                        local zoneKo, zoneEn = GetDungeonZone(actName)
-                        if zoneKo then
-                            local zoneLine = "|cffddaa00[Location] " .. zoneKo
-                            if zoneEn then zoneLine = zoneLine .. " / " .. zoneEn end
-                            table.insert(parts, zoneLine .. "|r")
+                        local zone = GetDungeonZone(actName)
+                        if zone then
+                            table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r")
                         end
                         WhereWeGoDB.noteBase = table.concat(parts, "\n")
                     end
@@ -375,11 +400,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                         if enName and enName ~= actName then
                             table.insert(parts, "|cffcccccc" .. enName .. "|r")
                         end
-                        local zoneKo, zoneEn = GetDungeonZone(actName)
-                        if zoneKo then
-                            local zoneLine = "|cffddaa00[Location] " .. zoneKo
-                            if zoneEn then zoneLine = zoneLine .. " / " .. zoneEn end
-                            table.insert(parts, zoneLine .. "|r")
+                        local zone = GetDungeonZone(actName)
+                        if zone then
+                            table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r")
                         end
                         WhereWeGoDB.noteBase = table.concat(parts, "\n")
                     end
@@ -427,12 +450,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         if dungeonName then
             local parts = {}
             table.insert(parts, "|cff4499ff[LFG]|r " .. dungeonName)
-            local zoneKo, zoneEn = GetDungeonZone(dungeonName)
-            if zoneKo then
-                local zoneLine = "|cffddaa00[Location] " .. zoneKo
-                if zoneEn then zoneLine = zoneLine .. " / " .. zoneEn end
-                table.insert(parts, zoneLine .. "|r")
-            end
+            local zone = GetDungeonZone(dungeonName)
+                        if zone then
+                            table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r")
+                        end
             WhereWeGoDB.pendingNoteBase = table.concat(parts, "\n")
             -- LFG has no leader concept; currentLeader will be set after GROUP_JOINED
         end
