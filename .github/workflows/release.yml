@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'   # triggers on any tag like v1.0.0, v1.1.0, etc.
+      - 'v*'
 
 jobs:
   release:
@@ -13,9 +13,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Package and release
-        uses: BigWigsMods/packager@v2
-        env:
-          CF_API_KEY: ${{ secrets.CF_API_KEY }}
-          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
-          CF_GAME_VERSION: "12.0.0"
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Package addon
+        run: |
+          mkdir -p WhereWeGo
+          cp Core.lua UI.lua WhereWeGo.toc WhereWeGo/
+          # Replace @project-version@ placeholder in TOC
+          sed -i "s/@project-version@/${{ steps.version.outputs.VERSION }}/g" WhereWeGo/WhereWeGo.toc
+          zip -r WhereWeGo-${{ steps.version.outputs.VERSION }}.zip WhereWeGo/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: WhereWeGo-${{ steps.version.outputs.VERSION }}.zip
+          generate_release_notes: true
+
+      - name: Get CurseForge game version ID
+        id: cfver
+        run: |
+          VERSIONS=$(curl -s -H "X-Api-Token: ${{ secrets.CF_API_KEY }}" \
+            "https://wow.curseforge.com/api/game/versions")
+          # Find the ID for the retail game version matching our interface
+          VERSION_ID=$(echo "$VERSIONS" | python3 -c "
+          import json, sys
+          versions = json.load(sys.stdin)
+          # Find latest retail (non-classic) version
+          retail = [v for v in versions if isinstance(v, dict) and 'Classic' not in v.get('name','') and 'PTR' not in v.get('name','')]
+          retail.sort(key=lambda v: v.get('id', 0), reverse=True)
+          print(retail[0]['id'] if retail else '')
+          ")
+          echo "VERSION_ID=$VERSION_ID" >> $GITHUB_OUTPUT
+          echo "Found CurseForge version ID: $VERSION_ID"
+
+      - name: Upload to CurseForge
+        run: |
+          METADATA=$(python3 -c "
+          import json
+          print(json.dumps({
+            'changelog': 'See GitHub releases: https://github.com/Rdmd-wow/wherewego/releases/tag/${{ steps.version.outputs.VERSION }}',
+            'changelogType': 'markdown',
+            'displayName': 'WhereWeGo ${{ steps.version.outputs.VERSION }}',
+            'gameVersions': [${{ steps.cfver.outputs.VERSION_ID }}],
+            'releaseType': 'release'
+          }))
+          ")
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "X-Api-Token: ${{ secrets.CF_API_KEY }}" \
+            -F "metadata=$METADATA" \
+            -F "file=@WhereWeGo-${{ steps.version.outputs.VERSION }}.zip" \
+            "https://wow.curseforge.com/api/projects/1489689/upload-file")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+          echo "CurseForge response ($HTTP_CODE): $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then exit 1; fi
