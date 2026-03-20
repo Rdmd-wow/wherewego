@@ -158,8 +158,10 @@ local function GetActualLeader()
     return nil
 end
 
--- File-level variable: leader captured at apply time, used for post-join validation
-local pendingLeader = nil
+-- Captured at apply-time (nice-to-have extras; dungeon name resolved fresh on join)
+local pendingTitle   = nil  -- human-written listing title
+local pendingComment = nil  -- listing comment
+local pendingLeader  = nil  -- leader name from the search result
 
 ------------------------------------------------------------------------
 -- Event handler frame
@@ -248,53 +250,19 @@ local function IsPlaceholder(title)
     return false
 end
 
+-- On ApplyToGroup: only save the human-written title/comment for display.
+-- The dungeon name is resolved FRESH from GetActiveEntryInfo() after joining,
+-- so stale pendingNoteBase can never show a wrong dungeon.
 local function CaptureListingInfo(searchResultID)
     if not C_LFGList or not C_LFGList.GetSearchResultInfo then return end
-
     local info = C_LFGList.GetSearchResultInfo(searchResultID)
     if not info then return end
 
-    -- Guard: info.name may be a number (0) in some API versions
-    local title = type(info.name) == "string" and strtrim(info.name) or ""
-    -- Try activityID, fall back to first element of activityIDs if available
-    local actID = info.activityID
-    if (not actID or actID == 0) and info.activityIDs and #info.activityIDs > 0 then
-        actID = info.activityIDs[1]
-    end
-
-    local actName = GetActivityName(actID)
-    local enName = TranslateToEnglish(actName)
-    local zone = GetDungeonZone(actName)
-    pendingLeader = info.leaderName  -- saved separately; NOT embedded in the note body
-    local parts = {}
-
-    if actName ~= "" then
-        table.insert(parts, "|cff00cc66" .. actName .. "|r")
-    end
-    if enName and enName ~= actName then
-        table.insert(parts, "|cffcccccc" .. enName .. "|r")
-    end
-    if zone then
-        table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r")
-    end
-
-    -- Listing title (skip generic placeholders)
-    if not IsPlaceholder(title) and title ~= actName then
-        table.insert(parts, "|cffffffff[Title]|r " .. tostring(title))
-    end
-
-    -- Leader comment (guard: comment may be number 0 from API)
-    if type(info.comment) == "string" and info.comment ~= "" then
-        table.insert(parts, "|cffaaaaaa" .. info.comment .. "|r")
-    end
-
-    -- Fallback
-    if #parts == 0 then
-        table.insert(parts, title ~= "" and title or "Unknown Group")
-    end
-
-    -- Store as note BODY (leader will be appended live by BuildAndShowNote)
-    WhereWeGoDB.pendingNoteBase = table.concat(parts, "\n")
+    -- Raw title from the listing (may be a kstring — use tostring for safety)
+    local rawTitle = tostring(info.name or "")
+    pendingTitle   = (not IsPlaceholder(rawTitle)) and strtrim(rawTitle) or nil
+    pendingComment = (type(info.comment) == "string" and info.comment ~= "") and info.comment or nil
+    pendingLeader  = info.leaderName
 end
 
 ------------------------------------------------------------------------
@@ -314,6 +282,56 @@ if C_LFGList then
 end
 
 ------------------------------------------------------------------------
+-- Shared helper: build note from the group's ACTIVE LFG entry.
+-- Called after joining (with a short delay so the entry syncs).
+------------------------------------------------------------------------
+local function BuildNoteFromActiveEntry(savedTitle, savedComment, savedLeader)
+    if not (IsInGroup() or IsInRaid()) then return end
+
+    -- PRIMARY source: what the current group is actually listed as
+    local actName = nil
+    local entryInfo = C_LFGList and C_LFGList.GetActiveEntryInfo and C_LFGList.GetActiveEntryInfo()
+    if entryInfo then
+        local actIDs = entryInfo.activityIDs
+        if actIDs and #actIDs > 0 then
+            actName = GetActivityName(actIDs[1])
+        end
+        -- If the entry has its own title, prefer it over the apply-time capture
+        if entryInfo.name then
+            local et = strtrim(tostring(entryInfo.name or ""))
+            if not IsPlaceholder(et) then savedTitle = et end
+        end
+    end
+
+    local parts = {}
+    if actName and actName ~= "" then
+        table.insert(parts, "|cff00cc66" .. actName .. "|r")
+        local enName = TranslateToEnglish(actName)
+        if enName then
+            table.insert(parts, "|cffcccccc" .. enName .. "|r")
+        end
+        local zone = GetDungeonZone(actName)
+        if zone then
+            table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r")
+        end
+    end
+    if savedTitle and savedTitle ~= actName then
+        table.insert(parts, "|cffffffff[Title]|r " .. savedTitle)
+    end
+    if savedComment then
+        table.insert(parts, "|cffaaaaaa" .. savedComment .. "|r")
+    end
+
+    if #parts > 0 then
+        WhereWeGoDB.noteBase = table.concat(parts, "\n")
+    end
+
+    WhereWeGoDB.currentLeader = GetActualLeader() or savedLeader
+    if WhereWeGoDB.noteBase then
+        BuildAndShowNote()
+    end
+end
+------------------------------------------------------------------------
 -- Event dispatcher
 ------------------------------------------------------------------------
 eventFrame:SetScript("OnEvent", function(self, event, ...)
@@ -321,141 +339,67 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         InitDB()
         ns:RestorePosition()
 
-        -- Clean up legacy fields
-        WhereWeGoDB.pendingNote = nil
-        WhereWeGoDB.currentNote = nil
+        -- Clean up legacy / old fields
+        WhereWeGoDB.pendingNote    = nil
+        WhereWeGoDB.currentNote    = nil
+        WhereWeGoDB.pendingNoteBase = nil
 
         if IsInGroup() or IsInRaid() then
-            -- Show saved note immediately (may be stale — will be overwritten below)
-            if WhereWeGoDB.noteBase then
-                BuildAndShowNote()
-            end
-            -- After roster settles, always pull fresh data from the group's active listing
+            if WhereWeGoDB.noteBase then BuildAndShowNote() end
+            -- Re-resolve dungeon name fresh in case API data wasn't ready at login
             C_Timer.After(2.0, function()
-                if not (IsInGroup() or IsInRaid()) then return end
-
-                local entryInfo = C_LFGList and C_LFGList.GetActiveEntryInfo and C_LFGList.GetActiveEntryInfo()
-                if entryInfo and entryInfo.activityIDs and #entryInfo.activityIDs > 0 then
-                    local actName = GetActivityName(entryInfo.activityIDs[1])
-                    if actName and actName ~= "" then
-                        local parts = {}
-                        table.insert(parts, "|cff00cc66" .. actName .. "|r")
-                        local enName = TranslateToEnglish(actName)
-                        if enName and enName ~= actName then
-                            table.insert(parts, "|cffcccccc" .. enName .. "|r")
-                        end
-                        local zone = GetDungeonZone(actName)
-                        if zone then
-                            table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r")
-                        end
-                        WhereWeGoDB.noteBase = table.concat(parts, "\n")
-                    end
-                end
-
-                local actualLeader = GetActualLeader()
-                if actualLeader then
-                    WhereWeGoDB.currentLeader = actualLeader
-                end
-                if WhereWeGoDB.noteBase then
-                    BuildAndShowNote()
-                end
+                BuildNoteFromActiveEntry(nil, nil, nil)
             end)
         else
-            -- Not in a group — clear everything
-            WhereWeGoDB.noteBase = nil
+            WhereWeGoDB.noteBase      = nil
             WhereWeGoDB.currentLeader = nil
-            WhereWeGoDB.pendingNoteBase = nil
         end
 
     elseif event == "GROUP_JOINED" then
-        -- Always wipe any stale note from a previous group first.
-        -- This ensures a direct invite never inherits old SavedVars data.
-        WhereWeGoDB.noteBase = nil
+        -- Always start fresh
+        WhereWeGoDB.noteBase      = nil
         WhereWeGoDB.currentLeader = nil
 
-        if WhereWeGoDB.pendingNoteBase then
-            -- Store as fallback but do NOT show yet — wait for the timer to confirm fresh data.
-            WhereWeGoDB.noteBase = WhereWeGoDB.pendingNoteBase
-            WhereWeGoDB.pendingNoteBase = nil
-            WhereWeGoDB.currentLeader = pendingLeader
-            pendingLeader = nil
-        end
+        -- Grab and immediately consume the apply-time extras
+        local t, c, l = pendingTitle, pendingComment, pendingLeader
+        pendingTitle   = nil
+        pendingComment = nil
+        pendingLeader  = nil
 
-        -- Always run this timer: corrects leader + fills dungeon info for direct invites.
-        -- If we already have noteBase from ApplyToGroup, keep it — only use GetActiveEntryInfo
-        -- as a fallback for direct invites (where pendingNoteBase was nil).
-        local hadPendingNote = WhereWeGoDB.noteBase ~= nil
-        C_Timer.After(1.5, function()
-            if not (IsInGroup() or IsInRaid()) then return end
-
-            -- Only attempt dungeon lookup if we have no info yet (direct invite)
-            if not hadPendingNote then
-                local entryInfo = C_LFGList and C_LFGList.GetActiveEntryInfo and C_LFGList.GetActiveEntryInfo()
-                if entryInfo and entryInfo.activityIDs and #entryInfo.activityIDs > 0 then
-                    local actName = GetActivityName(entryInfo.activityIDs[1])
-                    if actName and actName ~= "" then
-                        local parts = {}
-                        table.insert(parts, "|cff00cc66" .. actName .. "|r")
-                        local enName = TranslateToEnglish(actName)
-                        if enName and enName ~= actName then
-                            table.insert(parts, "|cffcccccc" .. enName .. "|r")
-                        end
-                        local zone = GetDungeonZone(actName)
-                        if zone then
-                            table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r")
-                        end
-                        WhereWeGoDB.noteBase = table.concat(parts, "\n")
-                    end
-                end
-            end
-
-            -- Always correct the leader after roster settles
-            local actualLeader = GetActualLeader()
-            if actualLeader then
-                WhereWeGoDB.currentLeader = actualLeader
-            end
-            if WhereWeGoDB.noteBase then
-                BuildAndShowNote()
-            end
+        -- Wait 2s for GetActiveEntryInfo to reflect the new group
+        C_Timer.After(2.0, function()
+            BuildNoteFromActiveEntry(t, c, l)
         end)
 
     elseif event == "PARTY_LEADER_CHANGED" then
-        -- Keep the leader line current whenever leadership changes
         if WhereWeGoDB.noteBase and (IsInGroup() or IsInRaid()) then
-            local actualLeader = GetActualLeader()
-            if actualLeader then
-                WhereWeGoDB.currentLeader = actualLeader
+            local leader = GetActualLeader()
+            if leader then
+                WhereWeGoDB.currentLeader = leader
                 BuildAndShowNote()
             end
         end
 
     elseif event == "GROUP_LEFT" then
-        WhereWeGoDB.noteBase = nil
+        -- Safe to clear everything — no pending state needed
+        WhereWeGoDB.noteBase      = nil
         WhereWeGoDB.currentLeader = nil
-        WhereWeGoDB.currentNote = nil
-        -- Don't clear pendingNoteBase here — avoids race with ApplyToGroup for next group
+        WhereWeGoDB.currentNote   = nil
+        pendingTitle   = nil
+        pendingComment = nil
+        pendingLeader  = nil
         ns:HideNote()
 
     elseif event == "LFG_PROPOSAL_SHOW" then
-        -- Always clear stale premade pendingNoteBase first
-        WhereWeGoDB.pendingNoteBase = nil
-        pendingLeader = nil
-
-        local dungeonName = nil
+        -- Random LFG (dungeon finder): GetLFGProposal has the name
         local ok, proposalExists, id, typeID, subtypeID, pName = pcall(GetLFGProposal)
         if ok and proposalExists and type(pName) == "string" and pName ~= "" then
-            dungeonName = pName
-        end
-
-        if dungeonName then
             local parts = {}
-            table.insert(parts, "|cff4499ff[LFG]|r " .. dungeonName)
-            local zone = GetDungeonZone(dungeonName)
-                        if zone then
-                            table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r")
-                        end
-            WhereWeGoDB.pendingNoteBase = table.concat(parts, "\n")
-            -- LFG has no leader concept; currentLeader will be set after GROUP_JOINED
+            table.insert(parts, "|cff4499ff[LFG]|r " .. pName)
+            local zone = GetDungeonZone(pName)
+            if zone then table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r") end
+            -- Store as noteBase directly; GROUP_JOINED will overwrite if active entry exists
+            WhereWeGoDB.noteBase = table.concat(parts, "\n")
         end
     end
 end)
@@ -500,7 +444,7 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         print("  GetActivityInfoTable: " .. tostring(C_LFGList and C_LFGList.GetActivityInfoTable ~= nil))
         print("  GetActivityInfo: " .. tostring(C_LFGList and C_LFGList.GetActivityInfo ~= nil))
         print("  GetActiveEntryInfo: " .. tostring(C_LFGList and C_LFGList.GetActiveEntryInfo ~= nil))
-        print("  pendingNoteBase: " .. tostring(WhereWeGoDB and WhereWeGoDB.pendingNoteBase))
+        print("  pendingTitle: " .. tostring(pendingTitle) .. "  pendingComment: " .. tostring(pendingComment))
         print("  noteBase: " .. tostring(WhereWeGoDB and WhereWeGoDB.noteBase))
         print("  currentLeader: " .. tostring(WhereWeGoDB and WhereWeGoDB.currentLeader))
         print("  InGroup: " .. tostring(IsInGroup()) .. "  InRaid: " .. tostring(IsInRaid()))
