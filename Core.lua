@@ -315,11 +315,6 @@ local function BuildNoteFromActiveEntry(savedActName, savedTitle, savedComment, 
                 actName = freshName
             end
         end
-        -- Use entry title only if apply-time title was empty
-        if not savedTitle and entryInfo.name then
-            local et = strtrim(tostring(entryInfo.name or ""))
-            if not IsPlaceholder(et) then savedTitle = et end
-        end
     end
 
     local parts = {}
