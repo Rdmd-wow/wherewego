@@ -248,7 +248,7 @@ local function IsPlaceholder(title)
     local tl = tostring(title):lower():gsub("^%s+", ""):gsub("%s+$", "")
     if tl == "" then return true end
     for _, p in ipairs(PLACEHOLDER_LIST) do
-        if tl == p or tl:find(p, 1, true) then return true end
+        if tl == p then return true end
     end
     return false
 end
