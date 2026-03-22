@@ -227,7 +227,7 @@ end
 ------------------------------------------------------------------------
 -- Placeholder group titles to filter out
 local PLACEHOLDER_LIST = {
-    -- Korean
+    -- Korean (UTF-8 literal — may fail if WoW returns kstring with different bytes)
     "무엇인가",
     -- English
     "something", "untitled", "m0", "m+",
@@ -242,11 +242,34 @@ local PLACEHOLDER_LIST = {
     -- Russian
     "что-то",
 }
+
+-- Byte sequences for known placeholders that may not compare correctly as literals.
+-- "무엇인가" in UTF-8: EB AC B4  EC 97 87  EC 9D B8  EA B0 80  (12 bytes)
+local PLACEHOLDER_BYTES = {
+    {235,172,180, 236,151,135, 236,157,184, 234,176,128},  -- "무엇인가" UTF-8
+}
+
+local function ByteMatchesPlaceholder(s)
+    local len = #s
+    for _, seq in ipairs(PLACEHOLDER_BYTES) do
+        if len == #seq then
+            local match = true
+            for i, b in ipairs(seq) do
+                if string.byte(s, i) ~= b then match = false; break end
+            end
+            if match then return true end
+        end
+    end
+    return false
+end
+
 local function IsPlaceholder(title)
     if not title or title == "" then return true end
-    -- Use tostring() to force kstring → real Lua string for reliable comparison
-    local tl = tostring(title):lower():gsub("^%s+", ""):gsub("%s+$", "")
+    -- tostring() forces kstring → Lua string; strip leading/trailing whitespace+nulls
+    local tl = tostring(title):lower():gsub("^[\0%s]+", ""):gsub("[\0%s]+$", "")
     if tl == "" then return true end
+    -- Byte-level check for multi-byte placeholders (avoids kstring encoding mismatch)
+    if ByteMatchesPlaceholder(tl) then return true end
     for _, p in ipairs(PLACEHOLDER_LIST) do
         if tl == p then return true end
     end
@@ -522,7 +545,13 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         print("  GetActivityInfoTable: " .. tostring(C_LFGList and C_LFGList.GetActivityInfoTable ~= nil))
         print("  GetActivityInfo: " .. tostring(C_LFGList and C_LFGList.GetActivityInfo ~= nil))
         print("  GetActiveEntryInfo: " .. tostring(C_LFGList and C_LFGList.GetActiveEntryInfo ~= nil))
-        print("  pendingTitle: " .. tostring(pendingTitle) .. "  pendingActName: " .. tostring(pendingActName))
+        local ptStr = tostring(pendingTitle)
+        local ptBytes = ""
+        for i = 1, math.min(#ptStr, 24) do
+            ptBytes = ptBytes .. string.format("%d ", string.byte(ptStr, i))
+        end
+        print("  pendingTitle: " .. ptStr .. "  (bytes: " .. ptBytes .. ")")
+        print("  pendingActName: " .. tostring(pendingActName))
         print("  noteBase: " .. tostring(WhereWeGoDB and WhereWeGoDB.noteBase))
         print("  currentLeader: " .. tostring(WhereWeGoDB and WhereWeGoDB.currentLeader))
         print("  InGroup: " .. tostring(IsInGroup()) .. "  InRaid: " .. tostring(IsInRaid()))
