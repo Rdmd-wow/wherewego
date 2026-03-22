@@ -164,6 +164,7 @@ local pendingComment = nil  -- listing comment
 local pendingLeader  = nil  -- leader name from the search result
 local pendingActName = nil  -- dungeon name resolved while search result is still valid
 local pendingSearchID = nil -- kept so we can re-query on invite acceptance
+local pendingInfoDump = {}  -- debug: all string/number fields from last GetSearchResultInfo
 
 ------------------------------------------------------------------------
 -- Event handler frame
@@ -276,6 +277,20 @@ local function IsPlaceholder(title)
     return false
 end
 
+-- Try to read the listing title text from a UI frame's child elements.
+local function ReadTitleFromFrame(frame)
+    if not frame then return nil end
+    local candidates = {"Name", "Title", "GroupName", "ListingTitle", "TitleText", "GroupTitle", "HeaderText"}
+    for _, fname in ipairs(candidates) do
+        local child = frame[fname]
+        if child and child.GetText then
+            local txt = strtrim(child:GetText() or "")
+            if txt ~= "" and not IsPlaceholder(txt) then return txt end
+        end
+    end
+    return nil
+end
+
 -- Capture everything available from a search result entry.
 -- Called at ApplyToGroup time AND again when the invite popup appears.
 local function CaptureListingInfo(searchResultID)
@@ -285,11 +300,33 @@ local function CaptureListingInfo(searchResultID)
 
     pendingSearchID = searchResultID
 
-    -- Raw title (kstring safe via tostring)
-    local rawTitle = tostring(info.name or "")
+    -- Dump all primitive fields for /wwg debug
+    pendingInfoDump = {}
+    for k, v in pairs(info) do
+        local vt = type(v)
+        if vt == "string" or vt == "number" or vt == "boolean" then
+            pendingInfoDump[tostring(k)] = tostring(v)
+        end
+    end
+
+    -- Try multiple field names — the API field name may differ between WoW versions
+    local rawTitle = tostring(info.name or info.title or info.groupName
+                              or info.listingName or info.activityName or "")
     pendingTitle   = (not IsPlaceholder(rawTitle)) and strtrim(rawTitle) or nil
     pendingComment = (type(info.comment) == "string" and info.comment ~= "") and info.comment or nil
     pendingLeader  = info.leaderName
+
+    -- Fallback: read title from the LFG Browse frame while listing is still selected
+    if not pendingTitle then
+        local browseTitle = nil
+        if LFGListFrame and LFGListFrame.SearchPanel then
+            local panel = LFGListFrame.SearchPanel
+            browseTitle = ReadTitleFromFrame(panel.EntryDetails)
+                       or ReadTitleFromFrame(panel.SelectedEntry)
+                       or ReadTitleFromFrame(panel.DetailView)
+        end
+        if browseTitle then pendingTitle = browseTitle end
+    end
 
     -- Resolve dungeon name NOW while the search result is still in memory
     local actID = info.activityID
@@ -397,6 +434,13 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             local dialog = LFGListInviteDialog or (_G and _G["LFGListInviteDialog"])
             if dialog then
                 dialog:HookScript("OnShow", function(self)
+                    -- Try to capture the listing title from dialog child elements.
+                    -- The dialog typically has fields like GroupName or Name for the title.
+                    if not pendingTitle then
+                        local t = ReadTitleFromFrame(self)
+                        if t then pendingTitle = t end
+                    end
+
                     -- Try reading activity text children (label order varies by locale)
                     if self.ActivityName and self.ActivityName.GetText then
                         local txt = strtrim(self.ActivityName:GetText() or "")
@@ -559,6 +603,15 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         local ok, proposalExists, id, typeID, subtypeID, pName = pcall(GetLFGProposal)
         print("  GetLFGProposal: ok=" .. tostring(ok) .. " exists=" .. tostring(proposalExists)
               .. " name=" .. tostring(pName))
+        -- Show all fields captured from the last GetSearchResultInfo call
+        if pendingInfoDump and next(pendingInfoDump) then
+            print("  Last GetSearchResultInfo fields:")
+            for k, v in pairs(pendingInfoDump) do
+                print("    " .. k .. " = " .. v)
+            end
+        else
+            print("  Last GetSearchResultInfo fields: (none captured yet)")
+        end
         if C_LFGList.GetActivityInfoTable then
             local ok2, info = pcall(C_LFGList.GetActivityInfoTable, 1193)
             print("  Test actID 1193: ok=" .. tostring(ok2) .. " type=" .. type(info))
