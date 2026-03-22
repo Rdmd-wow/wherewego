@@ -373,11 +373,66 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             WhereWeGoDB.currentLeader = nil
         end
 
+        -- Hook the invite confirmation dialog (the popup shown after leader accepts).
+        -- It has the dungeon name visually — we grab it from the activity label.
+        C_Timer.After(1.0, function()
+            local dialog = LFGListInviteDialog or (_G and _G["LFGListInviteDialog"])
+            if dialog then
+                dialog:HookScript("OnShow", function(self)
+                    -- Try reading activity text children (label order varies by locale)
+                    if self.ActivityName and self.ActivityName.GetText then
+                        local txt = strtrim(self.ActivityName:GetText() or "")
+                        if txt ~= "" and not IsPlaceholder(txt) then
+                            pendingActName = txt
+                            return
+                        end
+                    end
+                    -- Fallback: use GetApplications at show time (data is fresh)
+                    if C_LFGList and C_LFGList.GetApplications then
+                        local apps = C_LFGList.GetApplications()
+                        for _, app in ipairs(apps or {}) do
+                            local info = (type(app) == "table") and app or
+                                         (C_LFGList.GetApplicationInfo and C_LFGList.GetApplicationInfo(app))
+                            if info and info.activityID and info.activityID ~= 0 then
+                                local name = GetActivityName(info.activityID)
+                                if name and name ~= "" then
+                                    pendingActName = name
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end)
+            end
+        end)
+
     elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
-        -- Fires when the leader accepts our application (popup appears).
-        -- Re-capture search result info while it's still in memory.
-        if pendingSearchID then
-            CaptureListingInfo(pendingSearchID)
+        -- Fires when leader accepts our application = the invite popup appears.
+        -- GetApplications() gives us the activityID directly — most reliable source.
+        if not C_LFGList or not C_LFGList.GetApplications then return end
+        local apps = C_LFGList.GetApplications()
+        if not apps then return end
+        for _, app in ipairs(apps) do
+            -- app may be a table (newer API) or an ID (older API)
+            local appInfo = (type(app) == "table") and app or
+                            (C_LFGList.GetApplicationInfo and C_LFGList.GetApplicationInfo(app))
+            if appInfo then
+                local status = appInfo.status or ""
+                if status == "invited" or status == "inviteDeclined" or status == "invitePending" then
+                    -- Prefer activityID from the application directly
+                    local actID = appInfo.activityID
+                    if actID and actID ~= 0 then
+                        local name = GetActivityName(actID)
+                        if name and name ~= "" then
+                            pendingActName = name
+                        end
+                    end
+                    -- Also try re-reading the search result for title/comment
+                    local srID = appInfo.searchResultID or pendingSearchID
+                    if srID then CaptureListingInfo(srID) end
+                    break
+                end
+            end
         end
 
     elseif event == "GROUP_JOINED" then
