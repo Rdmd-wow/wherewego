@@ -230,7 +230,7 @@ local PLACEHOLDER_LIST = {
     -- Korean (UTF-8 literal — may fail if WoW returns kstring with different bytes)
     "무엇인가",
     -- English
-    "something", "untitled", "m0", "m+",
+    "something", "untitled",
     -- German
     "etwas",
     -- French
