@@ -158,10 +158,12 @@ local function GetActualLeader()
     return nil
 end
 
--- Captured at apply-time (nice-to-have extras; dungeon name resolved fresh on join)
+-- Captured at apply-time — all three sources feed pendingActName
 local pendingTitle   = nil  -- human-written listing title
 local pendingComment = nil  -- listing comment
 local pendingLeader  = nil  -- leader name from the search result
+local pendingActName = nil  -- dungeon name resolved while search result is still valid
+local pendingSearchID = nil -- kept so we can re-query on invite acceptance
 
 ------------------------------------------------------------------------
 -- Event handler frame
@@ -172,6 +174,7 @@ eventFrame:RegisterEvent("GROUP_JOINED")
 eventFrame:RegisterEvent("GROUP_LEFT")
 eventFrame:RegisterEvent("LFG_PROPOSAL_SHOW")
 eventFrame:RegisterEvent("PARTY_LEADER_CHANGED")
+eventFrame:RegisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED")
 
 ------------------------------------------------------------------------
 -- Helper: resolve activity name from activityID using multiple fallbacks
@@ -250,19 +253,30 @@ local function IsPlaceholder(title)
     return false
 end
 
--- On ApplyToGroup: only save the human-written title/comment for display.
--- The dungeon name is resolved FRESH from GetActiveEntryInfo() after joining,
--- so stale pendingNoteBase can never show a wrong dungeon.
+-- Capture everything available from a search result entry.
+-- Called at ApplyToGroup time AND again when the invite popup appears.
 local function CaptureListingInfo(searchResultID)
     if not C_LFGList or not C_LFGList.GetSearchResultInfo then return end
     local info = C_LFGList.GetSearchResultInfo(searchResultID)
     if not info then return end
 
-    -- Raw title from the listing (may be a kstring — use tostring for safety)
+    pendingSearchID = searchResultID
+
+    -- Raw title (kstring safe via tostring)
     local rawTitle = tostring(info.name or "")
     pendingTitle   = (not IsPlaceholder(rawTitle)) and strtrim(rawTitle) or nil
     pendingComment = (type(info.comment) == "string" and info.comment ~= "") and info.comment or nil
     pendingLeader  = info.leaderName
+
+    -- Resolve dungeon name NOW while the search result is still in memory
+    local actID = info.activityID
+    if (not actID or actID == 0) and info.activityIDs and #info.activityIDs > 0 then
+        actID = info.activityIDs[1]
+    end
+    local name = GetActivityName(actID)
+    if name and name ~= "" then
+        pendingActName = name
+    end
 end
 
 ------------------------------------------------------------------------
@@ -285,19 +299,24 @@ end
 -- Shared helper: build note from the group's ACTIVE LFG entry.
 -- Called after joining (with a short delay so the entry syncs).
 ------------------------------------------------------------------------
-local function BuildNoteFromActiveEntry(savedTitle, savedComment, savedLeader)
+local function BuildNoteFromActiveEntry(savedActName, savedTitle, savedComment, savedLeader)
     if not (IsInGroup() or IsInRaid()) then return end
 
-    -- PRIMARY source: what the current group is actually listed as
-    local actName = nil
+    local actName = savedActName  -- from apply-time capture (most reliable)
+
+    -- Try GetActiveEntryInfo as a cross-check / fallback for direct invites
     local entryInfo = C_LFGList and C_LFGList.GetActiveEntryInfo and C_LFGList.GetActiveEntryInfo()
     if entryInfo then
         local actIDs = entryInfo.activityIDs
         if actIDs and #actIDs > 0 then
-            actName = GetActivityName(actIDs[1])
+            local freshName = GetActivityName(actIDs[1])
+            -- Only override apply-time name if we got something meaningful
+            if freshName and freshName ~= "" then
+                actName = freshName
+            end
         end
-        -- If the entry has its own title, prefer it over the apply-time capture
-        if entryInfo.name then
+        -- Use entry title only if apply-time title was empty
+        if not savedTitle and entryInfo.name then
             local et = strtrim(tostring(entryInfo.name or ""))
             if not IsPlaceholder(et) then savedTitle = et end
         end
@@ -346,13 +365,19 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 
         if IsInGroup() or IsInRaid() then
             if WhereWeGoDB.noteBase then BuildAndShowNote() end
-            -- Re-resolve dungeon name fresh in case API data wasn't ready at login
             C_Timer.After(2.0, function()
-                BuildNoteFromActiveEntry(nil, nil, nil)
+                BuildNoteFromActiveEntry(nil, nil, nil, nil)
             end)
         else
             WhereWeGoDB.noteBase      = nil
             WhereWeGoDB.currentLeader = nil
+        end
+
+    elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
+        -- Fires when the leader accepts our application (popup appears).
+        -- Re-capture search result info while it's still in memory.
+        if pendingSearchID then
+            CaptureListingInfo(pendingSearchID)
         end
 
     elseif event == "GROUP_JOINED" then
@@ -360,15 +385,17 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         WhereWeGoDB.noteBase      = nil
         WhereWeGoDB.currentLeader = nil
 
-        -- Grab and immediately consume the apply-time extras
-        local t, c, l = pendingTitle, pendingComment, pendingLeader
+        -- Grab and immediately consume all apply-time captured data
+        local an, t, c, l = pendingActName, pendingTitle, pendingComment, pendingLeader
+        pendingActName = nil
         pendingTitle   = nil
         pendingComment = nil
         pendingLeader  = nil
+        -- Keep pendingSearchID until GROUP_LEFT in case we need it
 
         -- Wait 2s for GetActiveEntryInfo to reflect the new group
         C_Timer.After(2.0, function()
-            BuildNoteFromActiveEntry(t, c, l)
+            BuildNoteFromActiveEntry(an, t, c, l)
         end)
 
     elseif event == "PARTY_LEADER_CHANGED" then
@@ -381,13 +408,15 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         end
 
     elseif event == "GROUP_LEFT" then
-        -- Safe to clear everything — no pending state needed
+        -- Safe to clear everything
         WhereWeGoDB.noteBase      = nil
         WhereWeGoDB.currentLeader = nil
         WhereWeGoDB.currentNote   = nil
+        pendingActName = nil
         pendingTitle   = nil
         pendingComment = nil
         pendingLeader  = nil
+        pendingSearchID = nil
         ns:HideNote()
 
     elseif event == "LFG_PROPOSAL_SHOW" then
@@ -398,7 +427,6 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             table.insert(parts, "|cff4499ff[LFG]|r " .. pName)
             local zone = GetDungeonZone(pName)
             if zone then table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r") end
-            -- Store as noteBase directly; GROUP_JOINED will overwrite if active entry exists
             WhereWeGoDB.noteBase = table.concat(parts, "\n")
         end
     end
@@ -444,7 +472,7 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         print("  GetActivityInfoTable: " .. tostring(C_LFGList and C_LFGList.GetActivityInfoTable ~= nil))
         print("  GetActivityInfo: " .. tostring(C_LFGList and C_LFGList.GetActivityInfo ~= nil))
         print("  GetActiveEntryInfo: " .. tostring(C_LFGList and C_LFGList.GetActiveEntryInfo ~= nil))
-        print("  pendingTitle: " .. tostring(pendingTitle) .. "  pendingComment: " .. tostring(pendingComment))
+        print("  pendingTitle: " .. tostring(pendingTitle) .. "  pendingActName: " .. tostring(pendingActName))
         print("  noteBase: " .. tostring(WhereWeGoDB and WhereWeGoDB.noteBase))
         print("  currentLeader: " .. tostring(WhereWeGoDB and WhereWeGoDB.currentLeader))
         print("  InGroup: " .. tostring(IsInGroup()) .. "  InRaid: " .. tostring(IsInRaid()))
