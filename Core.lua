@@ -422,9 +422,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                             pendingActName = name
                         end
                     end
-                    -- Also try re-reading the search result for title/comment
-                    local srID = appInfo.searchResultID or pendingSearchID
-                    if srID then CaptureListingInfo(srID) end
+                    -- Do NOT call CaptureListingInfo here — at invite time info.name
+                    -- can return the locale placeholder (e.g. "무엇인가"), overwriting
+                    -- the correct title captured at apply-time.
                     break
                 end
             end
