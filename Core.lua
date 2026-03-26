@@ -179,6 +179,7 @@ eventFrame:RegisterEvent("GROUP_LEFT")
 eventFrame:RegisterEvent("LFG_PROPOSAL_SHOW")
 eventFrame:RegisterEvent("PARTY_LEADER_CHANGED")
 eventFrame:RegisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED")
+eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 
 ------------------------------------------------------------------------
 -- Helper: resolve activity name from activityID using multiple fallbacks
@@ -407,6 +408,14 @@ local function BuildNoteFromActiveEntry(savedActName, savedTitle, savedComment, 
         end
     end
 
+    -- Last resort: GetInstanceInfo() works once inside the instance
+    if not actName or actName == "" then
+        local instanceName, instanceType = GetInstanceInfo()
+        if instanceName and instanceName ~= "" and instanceType ~= "none" then
+            actName = instanceName
+        end
+    end
+
     local parts = {}
     if actName and actName ~= "" then
         table.insert(parts, "|cff00cc66" .. actName .. "|r")
@@ -432,7 +441,9 @@ local function BuildNoteFromActiveEntry(savedActName, savedTitle, savedComment, 
 
     WhereWeGoDB.noteBase      = table.concat(parts, "\n")
     WhereWeGoDB.currentLeader = GetActualLeader() or savedLeader
-    BuildAndShowNote(true)
+    -- Only print to chat when we have a real dungeon name, not a placeholder.
+    -- The frame always shows; chat message is saved for when info is meaningful.
+    BuildAndShowNote(actName ~= nil and actName ~= "")
 end
 ------------------------------------------------------------------------
 -- Event dispatcher
@@ -594,18 +605,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         else
             -- Premade Group Finder / direct invite path.
             -- Wait for GetActiveEntryInfo to sync (1st attempt at 2s).
+            -- If dungeon is still unknown after that, ZONE_CHANGED_NEW_AREA will
+            -- upgrade the note automatically once the player enters the instance.
             C_Timer.After(2.0, function()
                 if not (IsInGroup() or IsInRaid()) then return end
                 BuildNoteFromActiveEntry(an, t, c, l)
-                -- If dungeon is still unknown (slow server sync), retry once at 5s.
-                -- BuildNoteFromActiveEntry always sets noteBase now, so check for the placeholder.
-                if WhereWeGoDB.noteBase and WhereWeGoDB.noteBase:find("dungeon unknown", 1, true) then
-                    C_Timer.After(3.0, function()
-                        if (IsInGroup() or IsInRaid()) then
-                            BuildNoteFromActiveEntry(an, t, c, l)
-                        end
-                    end)
-                end
             end)
         end
 
@@ -643,6 +647,27 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             if zone then table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r") end
             pendingLFGNote = table.concat(parts, "\n")
             print("|cff4499ffWhereWeGo:|r " .. pName .. (zone and " — " .. zone or ""))
+        end
+
+    elseif event == "ZONE_CHANGED_NEW_AREA" then
+        -- Fires when the player enters a new zone or instance.
+        -- If the note is showing "(dungeon unknown)", try to upgrade it now that
+        -- GetInstanceInfo() can return the actual dungeon name.
+        if not (IsInGroup() or IsInRaid()) then return end
+        if not (WhereWeGoDB and WhereWeGoDB.noteBase) then return end
+        if not WhereWeGoDB.noteBase:find("dungeon unknown", 1, true) then return end
+
+        local instanceName, instanceType = GetInstanceInfo()
+        if instanceName and instanceName ~= "" and instanceType ~= "none" then
+            -- Rebuild note with the real dungeon name
+            local parts = {}
+            table.insert(parts, "|cff00cc66" .. instanceName .. "|r")
+            local enName = TranslateToEnglish(instanceName)
+            if enName then table.insert(parts, "|cffcccccc" .. enName .. "|r") end
+            local zone = GetDungeonZone(instanceName)
+            if zone then table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r") end
+            WhereWeGoDB.noteBase = table.concat(parts, "\n")
+            BuildAndShowNote(true)  -- print to chat now that we have the real name
         end
     end
 end)

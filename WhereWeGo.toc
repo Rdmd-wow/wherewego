@@ -3,7 +3,7 @@
 ## Notes: Shows the dungeon/raid name when you join a party from the Group Finder
 ## IconTexture: Interface\Icons\INV_Misc_Eye_02
 ## Author: Rdmd
-## Version: 1.2.13
+## Version: 1.2.14
 ## X-Curse-Project-ID: 1489689
 ## SavedVariables: WhereWeGoDB
 
