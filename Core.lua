@@ -395,9 +395,11 @@ local function BuildNoteFromActiveEntry(savedActName, savedTitle, savedComment, 
     -- Try GetActiveEntryInfo as a cross-check / fallback for direct invites
     local entryInfo = C_LFGList and C_LFGList.GetActiveEntryInfo and C_LFGList.GetActiveEntryInfo()
     if entryInfo then
+        -- Handle both activityIDs (array) and activityID (scalar) — Midnight may use either
         local actIDs = entryInfo.activityIDs
-        if actIDs and #actIDs > 0 then
-            local freshName = GetActivityName(actIDs[1])
+        local actID  = (actIDs and #actIDs > 0) and actIDs[1] or entryInfo.activityID
+        if actID and actID ~= 0 then
+            local freshName = GetActivityName(actID)
             -- Only override apply-time name if we got something meaningful
             if freshName and freshName ~= "" then
                 actName = freshName
@@ -416,6 +418,10 @@ local function BuildNoteFromActiveEntry(savedActName, savedTitle, savedComment, 
         if zone then
             table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r")
         end
+    else
+        -- Direct invite or unknown listing — no dungeon info available yet.
+        -- Still show the frame so at least the leader is visible.
+        table.insert(parts, "|cff888888(dungeon unknown)|r")
     end
     if savedTitle and savedTitle ~= actName then
         table.insert(parts, "|cffffffff[Title]|r " .. savedTitle)
@@ -424,14 +430,9 @@ local function BuildNoteFromActiveEntry(savedActName, savedTitle, savedComment, 
         table.insert(parts, "|cffaaaaaa" .. savedComment .. "|r")
     end
 
-    if #parts > 0 then
-        WhereWeGoDB.noteBase = table.concat(parts, "\n")
-    end
-
+    WhereWeGoDB.noteBase      = table.concat(parts, "\n")
     WhereWeGoDB.currentLeader = GetActualLeader() or savedLeader
-    if WhereWeGoDB.noteBase then
-        BuildAndShowNote(true)
-    end
+    BuildAndShowNote(true)
 end
 ------------------------------------------------------------------------
 -- Event dispatcher
@@ -596,14 +597,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             C_Timer.After(2.0, function()
                 if not (IsInGroup() or IsInRaid()) then return end
                 BuildNoteFromActiveEntry(an, t, c, l)
-                -- If still nothing after the first attempt (e.g. slow server sync),
-                -- retry once more at 5s — this covers high-latency scenarios.
-                if not WhereWeGoDB.noteBase then
-                    -- Print fallback to chat so something is always visible
-                    local fallback = an or t or "unknown dungeon"
-                    print("|cff4499ffWhereWeGo:|r Joined group — " .. fallback)
+                -- If dungeon is still unknown (slow server sync), retry once at 5s.
+                -- BuildNoteFromActiveEntry always sets noteBase now, so check for the placeholder.
+                if WhereWeGoDB.noteBase and WhereWeGoDB.noteBase:find("dungeon unknown", 1, true) then
                     C_Timer.After(3.0, function()
-                        if (IsInGroup() or IsInRaid()) and not WhereWeGoDB.noteBase then
+                        if (IsInGroup() or IsInRaid()) then
                             BuildNoteFromActiveEntry(an, t, c, l)
                         end
                     end)
