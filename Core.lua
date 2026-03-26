@@ -215,7 +215,7 @@ end
 -- Build the full display string from stored noteBase + currentLeader
 -- Call this whenever noteBase or currentLeader changes.
 ------------------------------------------------------------------------
-local function BuildAndShowNote()
+local function BuildAndShowNote(printToChat)
     if not WhereWeGoDB.noteBase then return end
     local note = WhereWeGoDB.noteBase
     local leader = WhereWeGoDB.currentLeader
@@ -224,6 +224,11 @@ local function BuildAndShowNote()
     end
     WhereWeGoDB.currentNote = note
     ns:ShowNote(note)
+    if printToChat then
+        -- Strip color codes and collapse newlines for a readable single-line chat message
+        local chatLine = note:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("\n", " | ")
+        print("|cff4499ffWhereWeGo:|r " .. chatLine)
+    end
 end
 
 ------------------------------------------------------------------------
@@ -425,7 +430,7 @@ local function BuildNoteFromActiveEntry(savedActName, savedTitle, savedComment, 
 
     WhereWeGoDB.currentLeader = GetActualLeader() or savedLeader
     if WhereWeGoDB.noteBase then
-        BuildAndShowNote()
+        BuildAndShowNote(true)
     end
 end
 ------------------------------------------------------------------------
@@ -584,7 +589,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             -- Use it directly — GetActiveEntryInfo won't have activity data for queue groups.
             WhereWeGoDB.noteBase      = lfgNote
             WhereWeGoDB.currentLeader = GetActualLeader()
-            BuildAndShowNote()
+            BuildAndShowNote(true)
         else
             -- Premade Group Finder / direct invite path.
             -- Wait for GetActiveEntryInfo to sync (1st attempt at 2s).
