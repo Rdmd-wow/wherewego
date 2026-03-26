@@ -165,6 +165,9 @@ local pendingLeader  = nil  -- leader name from the search result
 local pendingActName = nil  -- dungeon name resolved while search result is still valid
 local pendingSearchID = nil -- kept so we can re-query on invite acceptance
 local pendingInfoDump = {}  -- debug: all string/number fields from last GetSearchResultInfo
+-- For random LFG dungeon finder queue joins (LFG_PROPOSAL_SHOW path).
+-- Stored separately so GROUP_JOINED cleanup doesn't wipe it before we can show it.
+local pendingLFGNote = nil
 
 ------------------------------------------------------------------------
 -- Event handler frame
@@ -294,9 +297,15 @@ end
 -- Capture everything available from a search result entry.
 -- Called at ApplyToGroup time AND again when the invite popup appears.
 local function CaptureListingInfo(searchResultID)
-    if not C_LFGList or not C_LFGList.GetSearchResultInfo then return end
+    if not C_LFGList or not C_LFGList.GetSearchResultInfo then
+        print("|cff4499ffWWG:|r CaptureListingInfo: GetSearchResultInfo missing")
+        return
+    end
     local info = C_LFGList.GetSearchResultInfo(searchResultID)
-    if not info then return end
+    if not info then
+        print("|cff4499ffWWG:|r CaptureListingInfo: info=nil for id=" .. tostring(searchResultID))
+        return
+    end
 
     pendingSearchID = searchResultID
 
@@ -337,6 +346,20 @@ local function CaptureListingInfo(searchResultID)
     if name and name ~= "" then
         pendingActName = name
     end
+
+    -- In WoW Midnight, info.name may contain the dungeon name rather than the listing title.
+    -- If rawTitle matches a known dungeon, promote it to pendingActName.
+    if not pendingActName and pendingTitle then
+        local base = strtrim(pendingTitle:match("^(.-)%s*%(") or pendingTitle)
+        if KO_TO_EN_DUNGEON[base] then
+            pendingActName = pendingTitle
+            pendingTitle   = nil
+        end
+    end
+
+    print("|cff4499ffWWG:|r Captured: act=" .. tostring(pendingActName)
+          .. " title=" .. tostring(pendingTitle)
+          .. " leader=" .. tostring(pendingLeader))
 end
 
 ------------------------------------------------------------------------
@@ -429,70 +452,114 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         end
 
         -- Hook the invite confirmation dialog (the popup shown after leader accepts).
-        -- It has the dungeon name visually — we grab it from the activity label.
+        -- Try multiple possible frame names — dialog was renamed in WoW Midnight.
         C_Timer.After(1.0, function()
-            local dialog = LFGListInviteDialog or (_G and _G["LFGListInviteDialog"])
-            if dialog then
-                dialog:HookScript("OnShow", function(self)
-                    -- Try to capture the listing title from dialog child elements.
-                    -- The dialog typically has fields like GroupName or Name for the title.
-                    if not pendingTitle then
-                        local t = ReadTitleFromFrame(self)
-                        if t then pendingTitle = t end
-                    end
-
-                    -- Try reading activity text children (label order varies by locale)
-                    if self.ActivityName and self.ActivityName.GetText then
-                        local txt = strtrim(self.ActivityName:GetText() or "")
-                        if txt ~= "" and not IsPlaceholder(txt) then
-                            pendingActName = txt
-                            return
-                        end
-                    end
-                    -- Fallback: use GetApplications at show time (data is fresh)
-                    if C_LFGList and C_LFGList.GetApplications then
-                        local apps = C_LFGList.GetApplications()
-                        for _, app in ipairs(apps or {}) do
-                            local info = (type(app) == "table") and app or
-                                         (C_LFGList.GetApplicationInfo and C_LFGList.GetApplicationInfo(app))
-                            if info and info.activityID and info.activityID ~= 0 then
-                                local name = GetActivityName(info.activityID)
-                                if name and name ~= "" then
-                                    pendingActName = name
-                                    break
+            local dialog = LFGListInviteDialog
+                        or (_G and (_G["LFGListInviteDialog"]
+                                 or _G["PremadeGroupsInviteDialog"]
+                                 or _G["GroupFinderInviteDialog"]))
+            if not dialog then
+                print("|cff4499ffWWG:|r invite dialog frame not found — name may have changed in Midnight")
+                return
+            end
+            dialog:HookScript("OnShow", function(self)
+                -- Scan ALL font strings in the dialog recursively for a dungeon name.
+                -- Child widget names changed in WoW Midnight so we can't rely on named fields.
+                local function ScanForDungeonName(frame, depth)
+                    if depth > 5 then return end
+                    -- Check FontString regions on this frame
+                    for _, region in ipairs({frame:GetRegions()}) do
+                        if region.GetText then
+                            local txt = strtrim(region:GetText() or "")
+                            if txt ~= "" and not IsPlaceholder(txt) then
+                                local base = strtrim(txt:match("^(.-)%s*%(") or txt)
+                                if KO_TO_EN_DUNGEON[base] or KO_TO_EN_DUNGEON[txt] then
+                                    if not pendingActName then pendingActName = txt end
+                                elseif not pendingTitle then
+                                    pendingTitle = txt
                                 end
                             end
                         end
                     end
-                end)
-            end
+                    -- Recurse into child frames
+                    for _, child in ipairs({frame:GetChildren()}) do
+                        ScanForDungeonName(child, depth + 1)
+                    end
+                end
+                ScanForDungeonName(self, 0)
+
+                -- Fallback: GetApplications at show time (data is fresh)
+                if not pendingActName and C_LFGList and C_LFGList.GetApplications then
+                    local apps = C_LFGList.GetApplications()
+                    for _, app in ipairs(apps or {}) do
+                        local info = (type(app) == "table") and app or
+                                     (C_LFGList.GetApplicationInfo and C_LFGList.GetApplicationInfo(app))
+                        if info and info.activityID and info.activityID ~= 0 then
+                            local name = GetActivityName(info.activityID)
+                            if name and name ~= "" then
+                                pendingActName = name
+                                break
+                            end
+                        end
+                    end
+                end
+
+                -- Print to chat so you can see dungeon info even before the frame appears
+                local displayName = pendingActName or pendingTitle or "?"
+                local msg = "|cff4499ffWhereWeGo:|r " .. displayName
+                if pendingLeader and pendingLeader ~= "" then
+                    msg = msg .. " — [Leader] " .. pendingLeader
+                end
+                print(msg)
+            end)
         end)
 
     elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
         -- Fires when leader accepts our application = the invite popup appears.
-        -- GetApplications() gives us the activityID directly — most reliable source.
-        if not C_LFGList or not C_LFGList.GetApplications then return end
-        local apps = C_LFGList.GetApplications()
-        if not apps then return end
-        for _, app in ipairs(apps) do
-            -- app may be a table (newer API) or an ID (older API)
-            local appInfo = (type(app) == "table") and app or
-                            (C_LFGList.GetApplicationInfo and C_LFGList.GetApplicationInfo(app))
-            if appInfo then
-                local status = appInfo.status or ""
-                if status == "invited" or status == "inviteDeclined" or status == "invitePending" then
-                    -- Prefer activityID from the application directly
-                    local actID = appInfo.activityID
-                    if actID and actID ~= 0 then
-                        local name = GetActivityName(actID)
-                        if name and name ~= "" then
-                            pendingActName = name
+        -- This is our last reliable chance to resolve pendingActName before GROUP_JOINED
+        -- clears the search result from memory.
+
+        -- Path 1: GetApplications() gives us the activityID directly.
+        if C_LFGList and C_LFGList.GetApplications then
+            local apps = C_LFGList.GetApplications()
+            for _, app in ipairs(apps or {}) do
+                local appInfo = (type(app) == "table") and app or
+                                (C_LFGList.GetApplicationInfo and C_LFGList.GetApplicationInfo(app))
+                if appInfo then
+                    local status = appInfo.status or ""
+                    if status == "invited" or status == "inviteDeclined" or status == "invitePending" then
+                        local actID = appInfo.activityID
+                        if actID and actID ~= 0 then
+                            local name = GetActivityName(actID)
+                            if name and name ~= "" then
+                                pendingActName = name
+                            end
                         end
+                        -- Do NOT call CaptureListingInfo here — at invite time info.name
+                        -- can return the locale placeholder (e.g. "무엇인가"), overwriting
+                        -- the correct title captured at apply-time.
+                        break
                     end
-                    -- Do NOT call CaptureListingInfo here — at invite time info.name
-                    -- can return the locale placeholder (e.g. "무엇인가"), overwriting
-                    -- the correct title captured at apply-time.
-                    break
+                end
+            end
+        end
+
+        -- Path 2 (fallback): if pendingActName is still nil but we have the search result ID,
+        -- re-query GetSearchResultInfo for activityID only (NOT title, to avoid the
+        -- placeholder-overwrite bug). The search result is still valid at this point
+        -- (before GROUP_JOINED fires).
+        if not pendingActName and pendingSearchID and C_LFGList and C_LFGList.GetSearchResultInfo then
+            local info = C_LFGList.GetSearchResultInfo(pendingSearchID)
+            if info then
+                local actID = info.activityID
+                if (not actID or actID == 0) and info.activityIDs and #info.activityIDs > 0 then
+                    actID = info.activityIDs[1]
+                end
+                if actID and actID ~= 0 then
+                    local name = GetActivityName(actID)
+                    if name and name ~= "" then
+                        pendingActName = name
+                    end
                 end
             end
         end
@@ -504,16 +571,40 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 
         -- Grab and immediately consume all apply-time captured data
         local an, t, c, l = pendingActName, pendingTitle, pendingComment, pendingLeader
-        pendingActName = nil
-        pendingTitle   = nil
-        pendingComment = nil
-        pendingLeader  = nil
+        local lfgNote = pendingLFGNote
+        pendingActName  = nil
+        pendingTitle    = nil
+        pendingComment  = nil
+        pendingLeader   = nil
+        pendingLFGNote  = nil
         -- Keep pendingSearchID until GROUP_LEFT in case we need it
 
-        -- Wait 2s for GetActiveEntryInfo to reflect the new group
-        C_Timer.After(2.0, function()
-            BuildNoteFromActiveEntry(an, t, c, l)
-        end)
+        if lfgNote then
+            -- LFG dungeon finder path: note was captured at LFG_PROPOSAL_SHOW time.
+            -- Use it directly — GetActiveEntryInfo won't have activity data for queue groups.
+            WhereWeGoDB.noteBase      = lfgNote
+            WhereWeGoDB.currentLeader = GetActualLeader()
+            BuildAndShowNote()
+        else
+            -- Premade Group Finder / direct invite path.
+            -- Wait for GetActiveEntryInfo to sync (1st attempt at 2s).
+            C_Timer.After(2.0, function()
+                if not (IsInGroup() or IsInRaid()) then return end
+                BuildNoteFromActiveEntry(an, t, c, l)
+                -- If still nothing after the first attempt (e.g. slow server sync),
+                -- retry once more at 5s — this covers high-latency scenarios.
+                if not WhereWeGoDB.noteBase then
+                    -- Print fallback to chat so something is always visible
+                    local fallback = an or t or "unknown dungeon"
+                    print("|cff4499ffWhereWeGo:|r Joined group — " .. fallback)
+                    C_Timer.After(3.0, function()
+                        if (IsInGroup() or IsInRaid()) and not WhereWeGoDB.noteBase then
+                            BuildNoteFromActiveEntry(an, t, c, l)
+                        end
+                    end)
+                end
+            end)
+        end
 
     elseif event == "PARTY_LEADER_CHANGED" then
         if WhereWeGoDB.noteBase and (IsInGroup() or IsInRaid()) then
@@ -534,17 +625,21 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         pendingComment = nil
         pendingLeader  = nil
         pendingSearchID = nil
+        pendingLFGNote = nil
         ns:HideNote()
 
     elseif event == "LFG_PROPOSAL_SHOW" then
-        -- Random LFG (dungeon finder): GetLFGProposal has the name
+        -- Random LFG (dungeon finder): GetLFGProposal has the name.
+        -- Store in pendingLFGNote — NOT directly in noteBase — so that GROUP_JOINED's
+        -- cleanup (noteBase = nil) doesn't destroy it before we can display it.
         local ok, proposalExists, id, typeID, subtypeID, pName = pcall(GetLFGProposal)
         if ok and proposalExists and type(pName) == "string" and pName ~= "" then
             local parts = {}
             table.insert(parts, "|cff4499ff[LFG]|r " .. pName)
             local zone = GetDungeonZone(pName)
             if zone then table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r") end
-            WhereWeGoDB.noteBase = table.concat(parts, "\n")
+            pendingLFGNote = table.concat(parts, "\n")
+            print("|cff4499ffWhereWeGo:|r " .. pName .. (zone and " — " .. zone or ""))
         end
     end
 end)
@@ -596,6 +691,7 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         end
         print("  pendingTitle: " .. ptStr .. "  (bytes: " .. ptBytes .. ")")
         print("  pendingActName: " .. tostring(pendingActName))
+        print("  pendingLFGNote: " .. tostring(pendingLFGNote))
         print("  noteBase: " .. tostring(WhereWeGoDB and WhereWeGoDB.noteBase))
         print("  currentLeader: " .. tostring(WhereWeGoDB and WhereWeGoDB.currentLeader))
         print("  InGroup: " .. tostring(IsInGroup()) .. "  InRaid: " .. tostring(IsInRaid()))
