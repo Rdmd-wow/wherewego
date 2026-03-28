@@ -180,6 +180,7 @@ eventFrame:RegisterEvent("LFG_PROPOSAL_SHOW")
 eventFrame:RegisterEvent("PARTY_LEADER_CHANGED")
 eventFrame:RegisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED")
 eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+eventFrame:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATED")
 
 ------------------------------------------------------------------------
 -- Helper: resolve activity name from activityID using multiple fallbacks
@@ -668,6 +669,29 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             if zone then table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r") end
             WhereWeGoDB.noteBase = table.concat(parts, "\n")
             BuildAndShowNote(true)  -- print to chat now that we have the real name
+        end
+    end
+
+    elseif event == "LFG_LIST_ACTIVE_ENTRY_UPDATED" then
+        -- Fires when the player creates or updates their own group listing.
+        -- The creator never gets GROUP_JOINED, so this is the only reliable trigger.
+        local entryInfo = C_LFGList and C_LFGList.GetActiveEntryInfo and C_LFGList.GetActiveEntryInfo()
+        if entryInfo and entryInfo.activityIDs and #entryInfo.activityIDs > 0 then
+            local actName = GetActivityName(entryInfo.activityIDs[1])
+            if actName and actName ~= "" then
+                local parts = {}
+                table.insert(parts, "|cff00cc66" .. actName .. "|r")
+                local enName = TranslateToEnglish(actName)
+                if enName and enName ~= actName then
+                    table.insert(parts, "|cffcccccc" .. enName .. "|r")
+                end
+                local zone = GetDungeonZone(actName)
+                if zone then table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r") end
+                WhereWeGoDB.noteBase = table.concat(parts, "\n")
+                local actualLeader = GetActualLeader()
+                if actualLeader then WhereWeGoDB.currentLeader = actualLeader end
+                BuildAndShowNote(true)
+            end
         end
     end
 end)
