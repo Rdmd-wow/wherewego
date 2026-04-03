@@ -256,8 +256,26 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         print("  InGroup="..tostring(IsInGroup()).."  InRaid="..tostring(IsInRaid()))
         print("  GetLFGActivityFullNameFromID=" .. tostring(GetLFGActivityFullNameFromID ~= nil))
         if C_LFGList then
+            print("  ApplyToGroup=" .. tostring(C_LFGList.ApplyToGroup ~= nil))
+            print("  SignUpForGroup=" .. tostring(C_LFGList.SignUpForGroup ~= nil))
+            print("  RequestToJoin=" .. tostring(C_LFGList.RequestToJoin ~= nil))
+            print("  GetSearchResultInfo=" .. tostring(C_LFGList.GetSearchResultInfo ~= nil))
+            print("  GetApplicationInfo=" .. tostring(C_LFGList.GetApplicationInfo ~= nil))
+            print("  GetApplications=" .. tostring(C_LFGList.GetApplications ~= nil))
             print("  GetActivityInfoTable=" .. tostring(C_LFGList.GetActivityInfoTable ~= nil))
             print("  GetActiveEntryInfo=" .. tostring(C_LFGList.GetActiveEntryInfo ~= nil))
+            -- Try active entry now
+            if C_LFGList.GetActiveEntryInfo then
+                local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
+                if ok and info then
+                    local ids = info.activityIDs
+                    local id  = (ids and #ids > 0) and ids[1] or info.activityID
+                    print("  activeEntry actID=" .. tostring(id))
+                    if id then print("  activeEntry name=" .. tostring(GetActivityName(id))) end
+                else
+                    print("  activeEntry=nil/error")
+                end
+            end
         end
 
     else
@@ -284,6 +302,7 @@ f:RegisterEvent("PARTY_LEADER_CHANGED")
 f:RegisterEvent("LFG_PROPOSAL_SHOW")
 f:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATED")
 f:RegisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED")
+f:RegisterEvent("PLAYER_ROLES_ASSIGNED")  -- fires after role check accepted
 f:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 
 f:SetScript("OnEvent", function(_, event, ...)
@@ -296,31 +315,26 @@ f:SetScript("OnEvent", function(_, event, ...)
         print("|cff4499ffWhereWeGo|r v"..ver.." loaded  /wwg for help")
         -- Hook apply/signup now (safe inside event handler)
         if C_LFGList then
-            if C_LFGList.ApplyToGroup then
-                hooksecurefunc(C_LFGList, "ApplyToGroup", function(id)
-                    if not C_LFGList.GetSearchResultInfo then return end
+            local function captureFromSearchResult(id)
+                if not id then return end
+                if C_LFGList.GetSearchResultInfo then
                     local ok, info = pcall(C_LFGList.GetSearchResultInfo, id)
-                    if not ok or not info then return end
-                    local actID = (info.activityIDs and #info.activityIDs > 0)
-                                  and info.activityIDs[1] or info.activityID
-                    local name = GetActivityName(actID)
-                    if name and name ~= "" then
-                        pendingDungeon = name
+                    if ok and info then
+                        local actID = (info.activityIDs and #info.activityIDs > 0)
+                                      and info.activityIDs[1] or info.activityID
+                        local name = GetActivityName(actID)
+                        if name and name ~= "" then
+                            pendingDungeon = name
+                            print("|cff4499ffWWG:|r captured: " .. name)
+                        end
                     end
-                end)
+                end
             end
-            if C_LFGList.SignUpForGroup then
-                hooksecurefunc(C_LFGList, "SignUpForGroup", function(id)
-                    if not C_LFGList.GetSearchResultInfo then return end
-                    local ok, info = pcall(C_LFGList.GetSearchResultInfo, id)
-                    if not ok or not info then return end
-                    local actID = (info.activityIDs and #info.activityIDs > 0)
-                                  and info.activityIDs[1] or info.activityID
-                    local name = GetActivityName(actID)
-                    if name and name ~= "" then
-                        pendingDungeon = name
-                    end
-                end)
+            -- Hook whichever apply function exists
+            for _, fn in ipairs({"ApplyToGroup","SignUpForGroup","RequestToJoin"}) do
+                if C_LFGList[fn] then
+                    hooksecurefunc(C_LFGList, fn, captureFromSearchResult)
+                end
             end
         end
         -- If already in group on login, restore note
@@ -342,19 +356,23 @@ f:SetScript("OnEvent", function(_, event, ...)
     elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
         -- Args: applicationID, newStatus
         local appID, status = ...
+        print("|cff888888WWG appStatus:|r appID=" .. tostring(appID) .. " status=" .. tostring(status))
         -- Try using the event's applicationID directly
         if C_LFGList and appID and type(appID) == "number" then
             if C_LFGList.GetApplicationInfo then
                 local ok, info = pcall(C_LFGList.GetApplicationInfo, appID)
                 if ok and info then
                     local actID = info.activityID or (info.activityIDs and info.activityIDs[1])
+                    print("|cff888888WWG appInfo:|r actID=" .. tostring(actID))
                     if actID and actID ~= 0 then
                         local name = GetActivityName(actID)
-                        if name and name ~= "" then pendingDungeon = name end
+                        if name and name ~= "" then
+                            pendingDungeon = name
+                            print("|cff4499ffWWG:|r captured via appInfo: " .. name)
+                        end
                     end
                 end
             end
-            -- Also try treating appID as a search result ID
             if not pendingDungeon and C_LFGList.GetSearchResultInfo then
                 local ok, info = pcall(C_LFGList.GetSearchResultInfo, appID)
                 if ok and info then
@@ -362,12 +380,14 @@ f:SetScript("OnEvent", function(_, event, ...)
                                   and info.activityIDs[1] or info.activityID
                     if actID and actID ~= 0 then
                         local name = GetActivityName(actID)
-                        if name and name ~= "" then pendingDungeon = name end
+                        if name and name ~= "" then
+                            pendingDungeon = name
+                            print("|cff4499ffWWG:|r captured via searchResult: " .. name)
+                        end
                     end
                 end
             end
         end
-        -- Fallback: scan all applications
         if not pendingDungeon and C_LFGList and C_LFGList.GetApplications then
             local ok, apps = pcall(C_LFGList.GetApplications)
             if ok and apps then
@@ -378,9 +398,30 @@ f:SetScript("OnEvent", function(_, event, ...)
                         local actID = appInfo.activityID or (appInfo.activityIDs and appInfo.activityIDs[1])
                         if actID and actID ~= 0 then
                             local name = GetActivityName(actID)
-                            if name and name ~= "" then pendingDungeon = name break end
+                            if name and name ~= "" then
+                                pendingDungeon = name
+                                print("|cff4499ffWWG:|r captured via apps scan: " .. name)
+                                break
+                            end
                         end
                     end
+                end
+            end
+        end
+
+    elseif event == "PLAYER_ROLES_ASSIGNED" then
+        -- Fires after role check is confirmed, right before GROUP_JOINED
+        -- Good last chance to capture dungeon name
+        if pendingDungeon then return end
+        if C_LFGList and C_LFGList.GetActiveEntryInfo then
+            local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
+            if ok and info then
+                local ids = info.activityIDs
+                local id  = (ids and #ids > 0) and ids[1] or info.activityID
+                local name = GetActivityName(id)
+                if name and name ~= "" then
+                    pendingDungeon = name
+                    print("|cff4499ffWWG:|r captured via roles assigned: " .. name)
                 end
             end
         end
