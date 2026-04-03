@@ -1,4 +1,4 @@
-## Interface: 120001
+## Interface: 120000
 ## Title: WhereWeGo
 ## Notes: Shows the dungeon/raid name when you join a party from the Group Finder
 ## IconTexture: Interface\Icons\INV_Misc_Eye_02
