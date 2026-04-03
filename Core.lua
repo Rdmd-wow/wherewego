@@ -670,6 +670,28 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             WhereWeGoDB.noteBase = table.concat(parts, "\n")
             BuildAndShowNote(true)  -- print to chat now that we have the real name
         end
+
+    elseif event == "LFG_LIST_ACTIVE_ENTRY_UPDATED" then
+        -- Fires when the player creates or updates their own group listing.
+        -- The creator never gets GROUP_JOINED, so this is the only reliable trigger.
+        local entryInfo = C_LFGList and C_LFGList.GetActiveEntryInfo and C_LFGList.GetActiveEntryInfo()
+        if entryInfo and entryInfo.activityIDs and #entryInfo.activityIDs > 0 then
+            local actName = GetActivityName(entryInfo.activityIDs[1])
+            if actName and actName ~= "" then
+                local parts = {}
+                table.insert(parts, "|cff00cc66" .. actName .. "|r")
+                local enName = TranslateToEnglish(actName)
+                if enName and enName ~= actName then
+                    table.insert(parts, "|cffcccccc" .. enName .. "|r")
+                end
+                local zone = GetDungeonZone(actName)
+                if zone then table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r") end
+                WhereWeGoDB.noteBase = table.concat(parts, "\n")
+                local actualLeader = GetActualLeader()
+                if actualLeader then WhereWeGoDB.currentLeader = actualLeader end
+                BuildAndShowNote(true)
+            end
+        end
     end
 
     elseif event == "LFG_LIST_ACTIVE_ENTRY_UPDATED" then
@@ -769,7 +791,9 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         end
 
     else
-        print("|cff4499ffWhereWeGo|r v1.0.0")
+        local ver = C_AddOns and C_AddOns.GetAddOnMetadata and
+            C_AddOns.GetAddOnMetadata("WhereWeGo", "Version") or "?"
+        print("|cff4499ffWhereWeGo|r v" .. ver)
         print("  |cffffff00/wwg show|r  — Show current group note")
         print("  |cffffff00/wwg hide|r  — Hide the note frame")
         print("  |cffffff00/wwg clear|r — Clear saved note (use when note is stale)")
