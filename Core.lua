@@ -312,7 +312,7 @@ f:SetScript("OnEvent", function(_, event, ...)
         ns:RestorePos()
         local ver = C_AddOns and C_AddOns.GetAddOnMetadata and
             C_AddOns.GetAddOnMetadata("WhereWeGo","Version") or "?"
-        print("|cff4499ffWhereWeGo|r v"..ver.." loaded  /wwg for help")
+        print("|cff4499ffWhereWeGo|r v"..ver.." By Rdmdp-Tichondrius  /wwg for help")
         -- Hook apply/signup now (safe inside event handler)
         if C_LFGList then
             local function captureFromSearchResult(id)
