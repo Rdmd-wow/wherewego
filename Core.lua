@@ -156,6 +156,13 @@ local function ShowNote(dungeon, leader, printChat)
     end
 end
 
+------------------------------------------------------------------------
+-- Pending state  (MUST be declared before any function that references them)
+------------------------------------------------------------------------
+local pendingDungeon = nil
+local pendingLFGNote = nil   -- from LFG_PROPOSAL_SHOW path
+local wasInGroup     = false -- for GROUP_ROSTER_UPDATE dedup
+
 -- Shared logic for GROUP_JOINED / GROUP_ROSTER_UPDATE
 local function OnGroupJoined()
     local dungeon = pendingDungeon
@@ -203,13 +210,6 @@ local function OnGroupJoined()
         end)
     end
 end
-
-------------------------------------------------------------------------
--- Pending state (captured before GROUP_JOINED)
-------------------------------------------------------------------------
-local pendingDungeon = nil
-local pendingLFGNote = nil   -- from LFG_PROPOSAL_SHOW path
-local wasInGroup     = false -- for GROUP_ROSTER_UPDATE dedup
 
 ------------------------------------------------------------------------
 -- Slash commands  (registered at top of execution, cannot be blocked)
