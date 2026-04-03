@@ -370,20 +370,23 @@ local function CaptureListingInfo(searchResultID)
 end
 
 ------------------------------------------------------------------------
--- Hook ApplyToGroup & SignUpForGroup
+-- Hook ApplyToGroup & SignUpForGroup (wrapped in pcall so any error
+-- cannot prevent the slash commands below from being registered)
 ------------------------------------------------------------------------
-if C_LFGList then
-    if C_LFGList.ApplyToGroup then
-        hooksecurefunc(C_LFGList, "ApplyToGroup", function(searchResultID)
-            CaptureListingInfo(searchResultID)
-        end)
+pcall(function()
+    if C_LFGList then
+        if C_LFGList.ApplyToGroup then
+            hooksecurefunc(C_LFGList, "ApplyToGroup", function(searchResultID)
+                CaptureListingInfo(searchResultID)
+            end)
+        end
+        if C_LFGList.SignUpForGroup then
+            hooksecurefunc(C_LFGList, "SignUpForGroup", function(searchResultID)
+                CaptureListingInfo(searchResultID)
+            end)
+        end
     end
-    if C_LFGList.SignUpForGroup then
-        hooksecurefunc(C_LFGList, "SignUpForGroup", function(searchResultID)
-            CaptureListingInfo(searchResultID)
-        end)
-    end
-end
+end)
 
 ------------------------------------------------------------------------
 -- Shared helper: build note from the group's ACTIVE LFG entry.
@@ -446,6 +449,68 @@ local function BuildNoteFromActiveEntry(savedActName, savedTitle, savedComment, 
     -- The frame always shows; chat message is saved for when info is meaningful.
     BuildAndShowNote(actName ~= nil and actName ~= "")
 end
+
+------------------------------------------------------------------------
+-- Slash commands (registered early so a later runtime error can't block them)
+------------------------------------------------------------------------
+SLASH_WHEREWEGO1 = "/wwg"
+SLASH_WHEREWEGO2 = "/wherewego"
+
+SlashCmdList["WHEREWEGO"] = function(msg)
+    msg = strtrim(msg or ""):lower()
+
+    if msg == "show" then
+        if WhereWeGoDB and WhereWeGoDB.noteBase then
+            BuildAndShowNote()
+        else
+            print("|cff4499ffWhereWeGo:|r No active group note.")
+        end
+
+    elseif msg == "hide" then
+        ns:HideNote()
+
+    elseif msg == "clear" then
+        if WhereWeGoDB then
+            WhereWeGoDB.noteBase = nil
+            WhereWeGoDB.currentLeader = nil
+            WhereWeGoDB.currentNote = nil
+        end
+        ns:HideNote()
+        print("|cff4499ffWhereWeGo:|r Note cleared.")
+
+    elseif msg == "reset" then
+        if WhereWeGoDB then WhereWeGoDB.position = nil end
+        ns.frame:ClearAllPoints()
+        ns.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+        print("|cff4499ffWhereWeGo:|r Frame position reset.")
+
+    elseif msg == "debug" then
+        local version = C_AddOns and C_AddOns.GetAddOnMetadata and
+            C_AddOns.GetAddOnMetadata("WhereWeGo", "Version") or "unknown"
+        print("|cff4499ffWhereWeGo Debug:|r  version=" .. tostring(version))
+        print("  GetLFGActivityFullNameFromID: " .. tostring(GetLFGActivityFullNameFromID ~= nil))
+        print("  GetActivityInfoTable: " .. tostring(C_LFGList and C_LFGList.GetActivityInfoTable ~= nil))
+        print("  GetActivityInfo: " .. tostring(C_LFGList and C_LFGList.GetActivityInfo ~= nil))
+        print("  GetActiveEntryInfo: " .. tostring(C_LFGList and C_LFGList.GetActiveEntryInfo ~= nil))
+        print("  pendingTitle: " .. tostring(pendingTitle))
+        print("  pendingActName: " .. tostring(pendingActName))
+        print("  pendingLFGNote: " .. tostring(pendingLFGNote))
+        print("  noteBase: " .. tostring(WhereWeGoDB and WhereWeGoDB.noteBase))
+        print("  currentLeader: " .. tostring(WhereWeGoDB and WhereWeGoDB.currentLeader))
+        print("  InGroup: " .. tostring(IsInGroup()) .. "  InRaid: " .. tostring(IsInRaid()))
+
+    else
+        local ver = C_AddOns and C_AddOns.GetAddOnMetadata and
+            C_AddOns.GetAddOnMetadata("WhereWeGo", "Version") or "?"
+        print("|cff4499ffWhereWeGo|r v" .. ver)
+        print("  |cffffff00/wwg show|r  — Show current group note")
+        print("  |cffffff00/wwg hide|r  — Hide the note frame")
+        print("  |cffffff00/wwg clear|r — Clear saved note (use when note is stale)")
+        print("  |cffffff00/wwg reset|r — Reset frame position to centre")
+        print("  |cffffff00/wwg debug|r — Show debug info")
+    end
+end
+
 ------------------------------------------------------------------------
 -- Event dispatcher
 ------------------------------------------------------------------------
@@ -698,86 +763,3 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     end
 end)
 
-------------------------------------------------------------------------
--- Slash commands
-------------------------------------------------------------------------
-SLASH_WHEREWEGO1 = "/wwg"
-SLASH_WHEREWEGO2 = "/wherewego"
-
-SlashCmdList["WHEREWEGO"] = function(msg)
-    msg = strtrim(msg):lower()
-
-    if msg == "show" then
-        if WhereWeGoDB and WhereWeGoDB.noteBase then
-            BuildAndShowNote()
-        else
-            print("|cff4499ffWhereWeGo:|r No active group note.")
-        end
-
-    elseif msg == "hide" then
-        ns:HideNote()
-
-    elseif msg == "clear" then
-        WhereWeGoDB.noteBase = nil
-        WhereWeGoDB.currentLeader = nil
-        WhereWeGoDB.currentNote = nil
-        ns:HideNote()
-        print("|cff4499ffWhereWeGo:|r Note cleared.")
-
-    elseif msg == "reset" then
-        WhereWeGoDB.position = nil
-        ns.frame:ClearAllPoints()
-        ns.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
-        print("|cff4499ffWhereWeGo:|r Frame position reset.")
-
-    elseif msg == "debug" then
-        local version = C_AddOns and C_AddOns.GetAddOnMetadata and
-            C_AddOns.GetAddOnMetadata("WhereWeGo", "Version") or "unknown"
-        print("|cff4499ffWhereWeGo Debug:|r  version=" .. tostring(version) .. "  locale=" .. tostring(CLIENT_LOCALE))
-        print("  GetLFGActivityFullNameFromID: " .. tostring(GetLFGActivityFullNameFromID ~= nil))
-        print("  GetActivityInfoTable: " .. tostring(C_LFGList and C_LFGList.GetActivityInfoTable ~= nil))
-        print("  GetActivityInfo: " .. tostring(C_LFGList and C_LFGList.GetActivityInfo ~= nil))
-        print("  GetActiveEntryInfo: " .. tostring(C_LFGList and C_LFGList.GetActiveEntryInfo ~= nil))
-        local ptStr = tostring(pendingTitle)
-        local ptBytes = ""
-        for i = 1, math.min(#ptStr, 24) do
-            ptBytes = ptBytes .. string.format("%d ", string.byte(ptStr, i))
-        end
-        print("  pendingTitle: " .. ptStr .. "  (bytes: " .. ptBytes .. ")")
-        print("  pendingActName: " .. tostring(pendingActName))
-        print("  pendingLFGNote: " .. tostring(pendingLFGNote))
-        print("  noteBase: " .. tostring(WhereWeGoDB and WhereWeGoDB.noteBase))
-        print("  currentLeader: " .. tostring(WhereWeGoDB and WhereWeGoDB.currentLeader))
-        print("  InGroup: " .. tostring(IsInGroup()) .. "  InRaid: " .. tostring(IsInRaid()))
-        print("  ActualLeader: " .. tostring(GetActualLeader()))
-        local ok, proposalExists, id, typeID, subtypeID, pName = pcall(GetLFGProposal)
-        print("  GetLFGProposal: ok=" .. tostring(ok) .. " exists=" .. tostring(proposalExists)
-              .. " name=" .. tostring(pName))
-        -- Show all fields captured from the last GetSearchResultInfo call
-        if pendingInfoDump and next(pendingInfoDump) then
-            print("  Last GetSearchResultInfo fields:")
-            for k, v in pairs(pendingInfoDump) do
-                print("    " .. k .. " = " .. v)
-            end
-        else
-            print("  Last GetSearchResultInfo fields: (none captured yet)")
-        end
-        if C_LFGList.GetActivityInfoTable then
-            local ok2, info = pcall(C_LFGList.GetActivityInfoTable, 1193)
-            print("  Test actID 1193: ok=" .. tostring(ok2) .. " type=" .. type(info))
-            if ok2 and type(info) == "table" then
-                print("    fullName=" .. tostring(info.fullName))
-            end
-        end
-
-    else
-        local ver = C_AddOns and C_AddOns.GetAddOnMetadata and
-            C_AddOns.GetAddOnMetadata("WhereWeGo", "Version") or "?"
-        print("|cff4499ffWhereWeGo|r v" .. ver)
-        print("  |cffffff00/wwg show|r  — Show current group note")
-        print("  |cffffff00/wwg hide|r  — Hide the note frame")
-        print("  |cffffff00/wwg clear|r — Clear saved note (use when note is stale)")
-        print("  |cffffff00/wwg reset|r — Reset frame position to centre")
-        print("  |cffffff00/wwg debug|r — Show debug info")
-    end
-end
