@@ -1,19 +1,10 @@
 local addonName, ns = ...
 
 ------------------------------------------------------------------------
--- Saved variable initialisation
+-- Korean → English dungeon/difficulty lookup
 ------------------------------------------------------------------------
-local function InitDB()
-    if not WhereWeGoDB then
-        WhereWeGoDB = {}
-    end
-end
-
-------------------------------------------------------------------------
--- Korean → English name lookup tables
-------------------------------------------------------------------------
-local KO_TO_EN_DUNGEON = {
-    -- Midnight new dungeons
+local KO_EN = {
+    -- Midnight
     ["윈드러너 첨탑"]       = "Windrunner Spire",
     ["마법학자의 정원"]     = "Magisters' Terrace",
     ["죽음의 골목"]         = "Death's Row",
@@ -23,743 +14,370 @@ local KO_TO_EN_DUNGEON = {
     ["공결탑 제니스"]       = "Nexus-Point Xenas",
     ["눈부신 골짜기"]       = "Shining Vale",
     ["공허흉터 투기장"]     = "Voidscar Arena",
-    -- Legacy rotation (Season 1)
+    -- Legacy Season 1
     ["알게타르 대학"]       = "Algeth'ar Academy",
     ["알게타르 학원"]       = "Algeth'ar Academy",
     ["사론의 구덩이"]       = "Pit of Saron",
     ["삼두정의 권좌"]       = "Seat of the Triumvirate",
     ["삼두정의 옥좌"]       = "Seat of the Triumvirate",
-    ["하늘탑"]             = "Skyreach",
-    -- The War Within (TWW) dungeons
+    ["하늘탑"]              = "Skyreach",
+    -- TWW
     ["아라카라, 메아리의 도시"] = "Ara-Kara, City of Echoes",
     ["착암기 광산"]         = "The Stonevault",
-    ["시티 오브 스레드"]     = "City of Threads",
+    ["시티 오브 스레드"]    = "City of Threads",
     ["어둠불꽃 거리"]       = "Darkflame Cleft",
     ["새벽인도자의 양조장"] = "The Dawnbreaker",
     ["아틀다자르 신전"]     = "Atal'Dazar",
     ["왕노릇의 대가"]       = "Siege of Boralus",
     ["하급 카라잔"]         = "Lower Karazhan",
     ["상급 카라잔"]         = "Upper Karazhan",
-    -- TWW raids
+    -- Raids
     ["해방의 지하"]         = "Liberation of Undermine",
     ["네루바르 궁전"]       = "Nerub-ar Palace",
 }
 
-local KO_TO_EN_DIFFICULTY = {
-    ["신화"]   = "Mythic",
-    ["영웅"]   = "Heroic",
-    ["일반"]   = "Normal",
-    ["신화+"]  = "Mythic+",
-    ["공격대 찾기"] = "LFR",
+local KO_DIFF = {
+    ["신화"] = "Mythic", ["영웅"] = "Heroic", ["일반"] = "Normal",
+    ["쐐기"] = "M+",
 }
 
-local DUNGEON_ZONE = {
-    -- Midnight new dungeons (Korean keys)
-    ["윈드러너 첨탑"]       = { "은빛소나무 숲", "Silverpine Forest" },
-    ["마법학자의 정원"]     = { "은빛달 도시", "Silvermoon City" },
-    ["죽음의 골목"]         = { "은빛달 도시", "Silvermoon City" },
-    ["날로라크의 소굴"]     = { "줄아만", "Zul'Aman" },
-    ["마이사라 동굴"]       = { "줄아만", "Zul'Aman" },
-    ["공결탑 제나스"]       = { "공허폭풍", "Void Storm" },
-    ["공결탑 제니스"]       = { "공허폭풍", "Void Storm" },
-    ["눈부신 골짜기"]       = { "은빛소나무 숲", "Silverpine Forest" },
-    ["공허흉터 투기장"]     = { "공허폭풍", "Void Storm" },
-    -- Legacy season rotation (Korean keys)
-    ["알게타르 대학"]       = { "탈드라서스", "Thaldraszus" },
-    ["알게타르 학원"]       = { "탈드라서스", "Thaldraszus" },
-    ["사론의 구덩이"]       = { "얼음왕관 성채", "Icecrown Citadel" },
-    ["삼두정의 권좌"]       = { "아르거스", "Argus" },
-    ["삼두정의 옥좌"]       = { "아르거스", "Argus" },
-    ["하늘탑"]             = { "탈라도르", "Talador" },
-    -- The War Within (Korean keys)
-    ["아라카라, 메아리의 도시"] = { "아즈-카라즈", "Azj-Kahet" },
-    ["착암기 광산"]         = { "켁나스", "Khaz Algar" },
-    ["시티 오브 스레드"]     = { "아즈-카라즈", "Azj-Kahet" },
-    ["어둠불꽃 거리"]       = { "울림 깊은 곳", "The Ringing Deeps" },
-    ["새벽인도자의 양조장"] = { "아즈-카라즈", "Azj-Kahet" },
-    ["아틀다자르 신전"]     = { "줄다자르", "Zuldazar" },
-    ["왕노릇의 대가"]       = { "쿨 티라스", "Kul Tiras" },
-    ["하급 카라잔"]         = { "카라잔", "Karazhan" },
-    ["상급 카라잔"]         = { "카라잔", "Karazhan" },
-    -- TWW raids (Korean keys)
-    ["해방의 지하"]         = { "아제로스 지하", "Undermine" },
-    ["네루바르 궁전"]       = { "아즈-카라즈", "Azj-Kahet" },
-    -- English keys (for EN client users)
-    ["Windrunner Spire"]        = { "Silverpine Forest", "Silverpine Forest" },
-    ["Magisters' Terrace"]      = { "Silvermoon City", "Silvermoon City" },
-    ["Death's Row"]             = { "Silvermoon City", "Silvermoon City" },
-    ["Nalorakk's Den"]          = { "Zul'Aman", "Zul'Aman" },
-    ["Maisara Caverns"]         = { "Zul'Aman", "Zul'Aman" },
-    ["Nexus-Point Xenas"]       = { "Void Storm", "Void Storm" },
-    ["Shining Vale"]            = { "Silverpine Forest", "Silverpine Forest" },
-    ["Voidscar Arena"]          = { "Void Storm", "Void Storm" },
-    ["Algeth'ar Academy"]       = { "Thaldraszus", "Thaldraszus" },
-    ["Pit of Saron"]            = { "Icecrown Citadel", "Icecrown Citadel" },
-    ["Seat of the Triumvirate"] = { "Argus", "Argus" },
-    ["Skyreach"]                = { "Talador", "Talador" },
-    ["Ara-Kara, City of Echoes"]= { "Azj-Kahet", "Azj-Kahet" },
-    ["The Stonevault"]          = { "Khaz Algar", "Khaz Algar" },
-    ["City of Threads"]         = { "Azj-Kahet", "Azj-Kahet" },
-    ["Darkflame Cleft"]         = { "The Ringing Deeps", "The Ringing Deeps" },
-    ["The Dawnbreaker"]         = { "Azj-Kahet", "Azj-Kahet" },
-    ["Atal'Dazar"]              = { "Zuldazar", "Zuldazar" },
-    ["Siege of Boralus"]        = { "Kul Tiras", "Kul Tiras" },
-    ["Liberation of Undermine"] = { "Undermine", "Undermine" },
-    ["Nerub-ar Palace"]         = { "Azj-Kahet", "Azj-Kahet" },
+local ZONE = {
+    ["Windrunner Spire"]         = "Quel'Thalas",
+    ["Magisters' Terrace"]       = "Quel'Thalas",
+    ["Death's Row"]              = "Quel'Thalas",
+    ["Nalorakk's Den"]           = "Quel'Thalas",
+    ["Maisara Caverns"]          = "Quel'Thalas",
+    ["Nexus-Point Xenas"]        = "Quel'Thalas",
+    ["Shining Vale"]             = "Quel'Thalas",
+    ["Voidscar Arena"]           = "Quel'Thalas",
+    ["Algeth'ar Academy"]        = "The Azure Span",
+    ["Pit of Saron"]             = "Icecrown",
+    ["Seat of the Triumvirate"]  = "Argus",
+    ["Skyreach"]                 = "Spires of Arak",
+    ["Ara-Kara, City of Echoes"] = "Azj-Kahet",
+    ["The Stonevault"]           = "The Ringing Deeps",
+    ["City of Threads"]          = "Azj-Kahet",
+    ["Darkflame Cleft"]          = "Hallowfall",
+    ["The Dawnbreaker"]          = "Isle of Dorn",
+    ["Atal'Dazar"]               = "Zuldazar",
+    ["Siege of Boralus"]         = "Tiragarde Sound",
+    ["Lower Karazhan"]           = "Deadwind Pass",
+    ["Upper Karazhan"]           = "Deadwind Pass",
+    ["Liberation of Undermine"]  = "Undermine",
+    ["Nerub-ar Palace"]          = "Azj-Kahet",
 }
 
-local CLIENT_LOCALE = GetLocale and GetLocale() or "enUS"
-
-local function TranslateToEnglish(localizedName)
-    -- No translation needed for English clients
-    if CLIENT_LOCALE:match("^en") then return nil end
-    if not localizedName or localizedName == "" then return nil end
-
-    local baseName, diffKo = localizedName:match("^(.-)%s*%((.+)%)%s*$")
-    if not baseName then baseName = localizedName end
-
-    local enBase = KO_TO_EN_DUNGEON[strtrim(baseName)]
-    if not enBase then return nil end
-
-    if diffKo then
-        local enDiff = KO_TO_EN_DIFFICULTY[strtrim(diffKo)]
-        return enBase .. " (" .. (enDiff or diffKo) .. ")"
-    end
-    return enBase
+------------------------------------------------------------------------
+-- Helpers
+------------------------------------------------------------------------
+local function Translate(name)
+    if not name then return nil end
+    return KO_EN[name]
 end
 
-local function GetDungeonZone(localizedName)
-    if not localizedName or localizedName == "" then return nil end
-    local baseName = localizedName:match("^(.-)%s*%(") or localizedName
-    local entry = DUNGEON_ZONE[strtrim(baseName)]
-    if not entry then return nil end
-    -- For Korean clients show "koZone / enZone"; for others show just English zone
-    if CLIENT_LOCALE == "koKR" and entry[1] ~= entry[2] then
-        return entry[1] .. " / " .. entry[2]
-    end
-    return entry[2]
+local function GetZone(name)
+    if not name then return nil end
+    local en = KO_EN[name] or name
+    return ZONE[en]
 end
 
--- Returns realm-qualified name of the actual current group leader
-local function GetActualLeader()
+local function GetLeader()
     if UnitIsGroupLeader("player") then
-        local name, realm = UnitName("player")
-        return (realm and realm ~= "") and (name .. "-" .. realm) or name
+        local n, r = UnitName("player")
+        return (r and r ~= "") and (n.."-"..r) or n
     end
-    local maxMembers = IsInRaid() and 40 or 4
-    local prefix = IsInRaid() and "raid" or "party"
-    for i = 1, maxMembers do
-        local unit = prefix .. i
-        if UnitExists(unit) and UnitIsGroupLeader(unit) then
-            local name, realm = UnitName(unit)
-            return (realm and realm ~= "") and (name .. "-" .. realm) or name
+    local max = IsInRaid() and 40 or 4
+    local pre = IsInRaid() and "raid" or "party"
+    for i = 1, max do
+        local u = pre..i
+        if UnitExists(u) and UnitIsGroupLeader(u) then
+            local n, r = UnitName(u)
+            return (r and r ~= "") and (n.."-"..r) or n
         end
     end
-    return nil
 end
 
--- Captured at apply-time — all three sources feed pendingActName
-local pendingTitle   = nil  -- human-written listing title
-local pendingComment = nil  -- listing comment
-local pendingLeader  = nil  -- leader name from the search result
-local pendingActName = nil  -- dungeon name resolved while search result is still valid
-local pendingSearchID = nil -- kept so we can re-query on invite acceptance
-local pendingInfoDump = {}  -- debug: all string/number fields from last GetSearchResultInfo
--- For random LFG dungeon finder queue joins (LFG_PROPOSAL_SHOW path).
--- Stored separately so GROUP_JOINED cleanup doesn't wipe it before we can show it.
-local pendingLFGNote = nil
-
-------------------------------------------------------------------------
--- Event handler frame
-------------------------------------------------------------------------
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_LOGIN")
-eventFrame:RegisterEvent("GROUP_JOINED")
-eventFrame:RegisterEvent("GROUP_LEFT")
-eventFrame:RegisterEvent("LFG_PROPOSAL_SHOW")
-eventFrame:RegisterEvent("PARTY_LEADER_CHANGED")
-eventFrame:RegisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED")
-eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-eventFrame:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATED")
-
-------------------------------------------------------------------------
--- Helper: resolve activity name from activityID using multiple fallbacks
-------------------------------------------------------------------------
-local function GetActivityName(activityID)
-    if not activityID or activityID == 0 then return "" end
-
-    -- Method 1: Blizzard's own global helper (defined in Blizzard_GroupFinder)
+local function GetActivityName(actID)
+    if not actID or actID == 0 then return nil end
     if GetLFGActivityFullNameFromID then
-        local name = GetLFGActivityFullNameFromID(activityID)
-        if name and name ~= "" then return name end
+        local n = GetLFGActivityFullNameFromID(actID)
+        if n and n ~= "" then return n end
     end
-
-    -- Method 2: GetActivityInfoTable (returns a table)
-    if C_LFGList.GetActivityInfoTable then
-        local actInfo = C_LFGList.GetActivityInfoTable(activityID)
-        if actInfo then
-            if actInfo.fullName and actInfo.fullName ~= "" then return actInfo.fullName end
-            if actInfo.shortName and actInfo.shortName ~= "" then return actInfo.shortName end
-        end
-    end
-
-    -- Method 3: GetActivityInfo (returns multiple values: fullName, shortName, ...)
-    if C_LFGList.GetActivityInfo then
-        local fullName, shortName = C_LFGList.GetActivityInfo(activityID)
-        if fullName and fullName ~= "" then return fullName end
-        if shortName and shortName ~= "" then return shortName end
-    end
-
-    return ""
-end
-
-------------------------------------------------------------------------
--- Build the full display string from stored noteBase + currentLeader
--- Call this whenever noteBase or currentLeader changes.
-------------------------------------------------------------------------
-local function BuildAndShowNote(printToChat)
-    if not WhereWeGoDB.noteBase then return end
-    local note = WhereWeGoDB.noteBase
-    local leader = WhereWeGoDB.currentLeader
-    if leader and leader ~= "" then
-        note = note .. "\n|cff99bbff[Leader] " .. leader .. "|r"
-    end
-    WhereWeGoDB.currentNote = note
-    ns:ShowNote(note)
-    if printToChat then
-        -- Strip color codes and collapse newlines for a readable single-line chat message
-        local chatLine = note:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("\n", " | ")
-        print("|cff4499ffWhereWeGo:|r " .. chatLine)
-    end
-end
-
-------------------------------------------------------------------------
--- Shared capture helper — builds note body (WITHOUT leader) from a search result
-------------------------------------------------------------------------
--- Placeholder group titles to filter out
-local PLACEHOLDER_LIST = {
-    -- Korean (UTF-8 literal — may fail if WoW returns kstring with different bytes)
-    "무엇인가",
-    -- English
-    "something", "untitled",
-    -- German
-    "etwas",
-    -- French
-    "quelque chose",
-    -- Chinese (Simplified/Traditional)
-    "某事", "某些事情",
-    -- Spanish/Portuguese
-    "algo",
-    -- Russian
-    "что-то",
-}
-
--- Byte sequences for known placeholders that may not compare correctly as literals.
--- "무엇인가" in UTF-8: EB AC B4  EC 97 87  EC 9D B8  EA B0 80  (12 bytes)
-local PLACEHOLDER_BYTES = {
-    {235,172,180, 236,151,135, 236,157,184, 234,176,128},  -- "무엇인가" UTF-8
-}
-
-local function ByteMatchesPlaceholder(s)
-    local len = #s
-    for _, seq in ipairs(PLACEHOLDER_BYTES) do
-        if len == #seq then
-            local match = true
-            for i, b in ipairs(seq) do
-                if string.byte(s, i) ~= b then match = false; break end
-            end
-            if match then return true end
-        end
-    end
-    return false
-end
-
-local function IsPlaceholder(title)
-    if not title or title == "" then return true end
-    -- tostring() forces kstring → Lua string; strip leading/trailing whitespace+nulls
-    local tl = tostring(title):lower():gsub("^[\0%s]+", ""):gsub("[\0%s]+$", "")
-    if tl == "" then return true end
-    -- Byte-level check for multi-byte placeholders (avoids kstring encoding mismatch)
-    if ByteMatchesPlaceholder(tl) then return true end
-    for _, p in ipairs(PLACEHOLDER_LIST) do
-        if tl == p then return true end
-    end
-    return false
-end
-
--- Try to read the listing title text from a UI frame's child elements.
-local function ReadTitleFromFrame(frame)
-    if not frame then return nil end
-    local candidates = {"Name", "Title", "GroupName", "ListingTitle", "TitleText", "GroupTitle", "HeaderText"}
-    for _, fname in ipairs(candidates) do
-        local child = frame[fname]
-        if child and child.GetText then
-            local txt = strtrim(child:GetText() or "")
-            if txt ~= "" and not IsPlaceholder(txt) then return txt end
-        end
-    end
-    return nil
-end
-
--- Capture everything available from a search result entry.
--- Called at ApplyToGroup time AND again when the invite popup appears.
-local function CaptureListingInfo(searchResultID)
-    if not C_LFGList or not C_LFGList.GetSearchResultInfo then
-        print("|cff4499ffWWG:|r CaptureListingInfo: GetSearchResultInfo missing")
-        return
-    end
-    local info = C_LFGList.GetSearchResultInfo(searchResultID)
-    if not info then
-        print("|cff4499ffWWG:|r CaptureListingInfo: info=nil for id=" .. tostring(searchResultID))
-        return
-    end
-
-    pendingSearchID = searchResultID
-
-    -- Dump all primitive fields for /wwg debug
-    pendingInfoDump = {}
-    for k, v in pairs(info) do
-        local vt = type(v)
-        if vt == "string" or vt == "number" or vt == "boolean" then
-            pendingInfoDump[tostring(k)] = tostring(v)
-        end
-    end
-
-    -- Try multiple field names — the API field name may differ between WoW versions
-    local rawTitle = tostring(info.name or info.title or info.groupName
-                              or info.listingName or info.activityName or "")
-    pendingTitle   = (not IsPlaceholder(rawTitle)) and strtrim(rawTitle) or nil
-    pendingComment = (type(info.comment) == "string" and info.comment ~= "") and info.comment or nil
-    pendingLeader  = info.leaderName
-
-    -- Fallback: read title from the LFG Browse frame while listing is still selected
-    if not pendingTitle then
-        local browseTitle = nil
-        if LFGListFrame and LFGListFrame.SearchPanel then
-            local panel = LFGListFrame.SearchPanel
-            browseTitle = ReadTitleFromFrame(panel.EntryDetails)
-                       or ReadTitleFromFrame(panel.SelectedEntry)
-                       or ReadTitleFromFrame(panel.DetailView)
-        end
-        if browseTitle then pendingTitle = browseTitle end
-    end
-
-    -- Resolve dungeon name NOW while the search result is still in memory
-    local actID = info.activityID
-    if (not actID or actID == 0) and info.activityIDs and #info.activityIDs > 0 then
-        actID = info.activityIDs[1]
-    end
-    local name = GetActivityName(actID)
-    if name and name ~= "" then
-        pendingActName = name
-    end
-
-    -- In WoW Midnight, info.name may contain the dungeon name rather than the listing title.
-    -- If rawTitle matches a known dungeon, promote it to pendingActName.
-    if not pendingActName and pendingTitle then
-        local base = strtrim(pendingTitle:match("^(.-)%s*%(") or pendingTitle)
-        if KO_TO_EN_DUNGEON[base] then
-            pendingActName = pendingTitle
-            pendingTitle   = nil
-        end
-    end
-
-    print("|cff4499ffWWG:|r Captured: act=" .. tostring(pendingActName)
-          .. " title=" .. tostring(pendingTitle)
-          .. " leader=" .. tostring(pendingLeader))
-end
-
-------------------------------------------------------------------------
--- Hook ApplyToGroup & SignUpForGroup (wrapped in pcall so any error
--- cannot prevent the slash commands below from being registered)
-------------------------------------------------------------------------
-pcall(function()
     if C_LFGList then
-        if C_LFGList.ApplyToGroup then
-            hooksecurefunc(C_LFGList, "ApplyToGroup", function(searchResultID)
-                CaptureListingInfo(searchResultID)
-            end)
-        end
-        if C_LFGList.SignUpForGroup then
-            hooksecurefunc(C_LFGList, "SignUpForGroup", function(searchResultID)
-                CaptureListingInfo(searchResultID)
-            end)
-        end
-    end
-end)
-
-------------------------------------------------------------------------
--- Shared helper: build note from the group's ACTIVE LFG entry.
--- Called after joining (with a short delay so the entry syncs).
-------------------------------------------------------------------------
-local function BuildNoteFromActiveEntry(savedActName, savedTitle, savedComment, savedLeader)
-    if not (IsInGroup() or IsInRaid()) then return end
-
-    local actName = savedActName  -- from apply-time capture (most reliable)
-
-    -- Try GetActiveEntryInfo as a cross-check / fallback for direct invites
-    local entryInfo = C_LFGList and C_LFGList.GetActiveEntryInfo and C_LFGList.GetActiveEntryInfo()
-    if entryInfo then
-        -- Handle both activityIDs (array) and activityID (scalar) — Midnight may use either
-        local actIDs = entryInfo.activityIDs
-        local actID  = (actIDs and #actIDs > 0) and actIDs[1] or entryInfo.activityID
-        if actID and actID ~= 0 then
-            local freshName = GetActivityName(actID)
-            -- Only override apply-time name if we got something meaningful
-            if freshName and freshName ~= "" then
-                actName = freshName
+        if C_LFGList.GetActivityInfoTable then
+            local ok, info = pcall(C_LFGList.GetActivityInfoTable, actID)
+            if ok and info then
+                return info.fullName or info.shortName
             end
         end
-    end
-
-    -- Last resort: GetInstanceInfo() works once inside the instance
-    if not actName or actName == "" then
-        local instanceName, instanceType = GetInstanceInfo()
-        if instanceName and instanceName ~= "" and instanceType ~= "none" then
-            actName = instanceName
+        if C_LFGList.GetActivityInfo then
+            local ok, full = pcall(C_LFGList.GetActivityInfo, actID)
+            if ok and full and full ~= "" then return full end
         end
     end
+end
 
-    local parts = {}
-    if actName and actName ~= "" then
-        table.insert(parts, "|cff00cc66" .. actName .. "|r")
-        local enName = TranslateToEnglish(actName)
-        if enName then
-            table.insert(parts, "|cffcccccc" .. enName .. "|r")
-        end
-        local zone = GetDungeonZone(actName)
-        if zone then
-            table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r")
-        end
+local function BuildLines(dungeon, leader)
+    local lines = {}
+    if dungeon and dungeon ~= "" then
+        lines[#lines+1] = "|cff00cc66" .. dungeon .. "|r"
+        local en = Translate(dungeon)
+        if en then lines[#lines+1] = "|cffcccccc" .. en .. "|r" end
+        local zone = GetZone(dungeon)
+        if zone then lines[#lines+1] = "|cffddaa00[위치] " .. zone .. "|r" end
     else
-        -- Direct invite or unknown listing — no dungeon info available yet.
-        -- Still show the frame so at least the leader is visible.
-        table.insert(parts, "|cff888888(dungeon unknown)|r")
+        lines[#lines+1] = "|cff888888(dungeon unknown)|r"
     end
-    if savedTitle and savedTitle ~= actName then
-        table.insert(parts, "|cffffffff[Title]|r " .. savedTitle)
+    if leader and leader ~= "" then
+        lines[#lines+1] = "|cff99bbff[파티장] " .. leader .. "|r"
     end
-    if savedComment then
-        table.insert(parts, "|cffaaaaaa" .. savedComment .. "|r")
-    end
+    return table.concat(lines, "\n")
+end
 
-    WhereWeGoDB.noteBase      = table.concat(parts, "\n")
-    WhereWeGoDB.currentLeader = GetActualLeader() or savedLeader
-    -- Only print to chat when we have a real dungeon name, not a placeholder.
-    -- The frame always shows; chat message is saved for when info is meaningful.
-    BuildAndShowNote(actName ~= nil and actName ~= "")
+local function ShowNote(dungeon, leader, printChat)
+    if not WhereWeGoDB then return end
+    local note = BuildLines(dungeon, leader)
+    WhereWeGoDB.dungeon = dungeon
+    WhereWeGoDB.leader  = leader
+    WhereWeGoDB.note    = note
+    ns:Show(note)
+    if printChat and dungeon and dungeon ~= "" then
+        local en = Translate(dungeon)
+        local msg = dungeon .. (en and (" / " .. en) or "")
+        if leader then msg = msg .. "  [파티장] " .. leader end
+        print("|cff4499ffWhereWeGo:|r " .. msg)
+    end
 end
 
 ------------------------------------------------------------------------
--- Slash commands (registered early so a later runtime error can't block them)
+-- Pending state (captured before GROUP_JOINED)
+------------------------------------------------------------------------
+local pendingDungeon = nil
+local pendingLFGNote = nil   -- from LFG_PROPOSAL_SHOW path
+
+------------------------------------------------------------------------
+-- Slash commands  (registered at top of execution, cannot be blocked)
 ------------------------------------------------------------------------
 SLASH_WHEREWEGO1 = "/wwg"
 SLASH_WHEREWEGO2 = "/wherewego"
 
 SlashCmdList["WHEREWEGO"] = function(msg)
-    msg = strtrim(msg or ""):lower()
+    msg = (msg or ""):lower():match("^%s*(.-)%s*$")
 
     if msg == "show" then
-        if WhereWeGoDB and WhereWeGoDB.noteBase then
-            BuildAndShowNote()
+        if WhereWeGoDB and WhereWeGoDB.note then
+            ns:Show(WhereWeGoDB.note)
         else
             print("|cff4499ffWhereWeGo:|r No active group note.")
         end
 
     elseif msg == "hide" then
-        ns:HideNote()
+        ns:Hide()
 
     elseif msg == "clear" then
         if WhereWeGoDB then
-            WhereWeGoDB.noteBase = nil
-            WhereWeGoDB.currentLeader = nil
-            WhereWeGoDB.currentNote = nil
+            WhereWeGoDB.dungeon = nil
+            WhereWeGoDB.leader  = nil
+            WhereWeGoDB.note    = nil
         end
-        ns:HideNote()
-        print("|cff4499ffWhereWeGo:|r Note cleared.")
+        ns:Hide()
+        print("|cff4499ffWhereWeGo:|r Cleared.")
 
     elseif msg == "reset" then
-        if WhereWeGoDB then WhereWeGoDB.position = nil end
+        if WhereWeGoDB then WhereWeGoDB.pos = nil end
         ns.frame:ClearAllPoints()
         ns.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
-        print("|cff4499ffWhereWeGo:|r Frame position reset.")
+        print("|cff4499ffWhereWeGo:|r Position reset.")
 
     elseif msg == "debug" then
-        local version = C_AddOns and C_AddOns.GetAddOnMetadata and
-            C_AddOns.GetAddOnMetadata("WhereWeGo", "Version") or "unknown"
-        print("|cff4499ffWhereWeGo Debug:|r  version=" .. tostring(version))
-        print("  GetLFGActivityFullNameFromID: " .. tostring(GetLFGActivityFullNameFromID ~= nil))
-        print("  GetActivityInfoTable: " .. tostring(C_LFGList and C_LFGList.GetActivityInfoTable ~= nil))
-        print("  GetActivityInfo: " .. tostring(C_LFGList and C_LFGList.GetActivityInfo ~= nil))
-        print("  GetActiveEntryInfo: " .. tostring(C_LFGList and C_LFGList.GetActiveEntryInfo ~= nil))
-        print("  pendingTitle: " .. tostring(pendingTitle))
-        print("  pendingActName: " .. tostring(pendingActName))
-        print("  pendingLFGNote: " .. tostring(pendingLFGNote))
-        print("  noteBase: " .. tostring(WhereWeGoDB and WhereWeGoDB.noteBase))
-        print("  currentLeader: " .. tostring(WhereWeGoDB and WhereWeGoDB.currentLeader))
-        print("  InGroup: " .. tostring(IsInGroup()) .. "  InRaid: " .. tostring(IsInRaid()))
+        local ver = C_AddOns and C_AddOns.GetAddOnMetadata and
+            C_AddOns.GetAddOnMetadata("WhereWeGo","Version") or "?"
+        print("|cff4499ffWWG debug|r v"..ver)
+        print("  pendingDungeon=" .. tostring(pendingDungeon))
+        print("  pendingLFGNote=" .. tostring(pendingLFGNote))
+        print("  stored dungeon=" .. tostring(WhereWeGoDB and WhereWeGoDB.dungeon))
+        print("  leader=" .. tostring(WhereWeGoDB and WhereWeGoDB.leader))
+        print("  InGroup="..tostring(IsInGroup()).."  InRaid="..tostring(IsInRaid()))
+        print("  GetLFGActivityFullNameFromID=" .. tostring(GetLFGActivityFullNameFromID ~= nil))
+        if C_LFGList then
+            print("  GetActivityInfoTable=" .. tostring(C_LFGList.GetActivityInfoTable ~= nil))
+            print("  GetActiveEntryInfo=" .. tostring(C_LFGList.GetActiveEntryInfo ~= nil))
+        end
 
     else
         local ver = C_AddOns and C_AddOns.GetAddOnMetadata and
-            C_AddOns.GetAddOnMetadata("WhereWeGo", "Version") or "?"
-        print("|cff4499ffWhereWeGo|r v" .. ver)
-        print("  |cffffff00/wwg show|r  — Show current group note")
-        print("  |cffffff00/wwg hide|r  — Hide the note frame")
-        print("  |cffffff00/wwg clear|r — Clear saved note (use when note is stale)")
-        print("  |cffffff00/wwg reset|r — Reset frame position to centre")
-        print("  |cffffff00/wwg debug|r — Show debug info")
+            C_AddOns.GetAddOnMetadata("WhereWeGo","Version") or "?"
+        print("|cff4499ffWhereWeGo|r v"..ver)
+        print("  |cffffff00/wwg show|r  — show note")
+        print("  |cffffff00/wwg hide|r  — hide frame")
+        print("  |cffffff00/wwg clear|r — clear note")
+        print("  |cffffff00/wwg reset|r — reset position")
+        print("  |cffffff00/wwg debug|r — debug info")
     end
 end
 
 ------------------------------------------------------------------------
--- Event dispatcher
+-- Event handler
 ------------------------------------------------------------------------
-eventFrame:SetScript("OnEvent", function(self, event, ...)
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_LOGIN")
+f:RegisterEvent("GROUP_JOINED")
+f:RegisterEvent("GROUP_LEFT")
+f:RegisterEvent("PARTY_LEADER_CHANGED")
+f:RegisterEvent("LFG_PROPOSAL_SHOW")
+f:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATED")
+f:RegisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED")
+f:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+
+f:SetScript("OnEvent", function(_, event, ...)
+
     if event == "PLAYER_LOGIN" then
-        InitDB()
-        ns:RestorePosition()
+        if not WhereWeGoDB then WhereWeGoDB = {} end
+        ns:RestorePos()
         local ver = C_AddOns and C_AddOns.GetAddOnMetadata and
-            C_AddOns.GetAddOnMetadata("WhereWeGo", "Version") or "?"
-        print("|cff4499ffWhereWeGo|r v" .. ver .. " loaded — /wwg for help")
-
-        -- Clean up legacy / old fields
-        WhereWeGoDB.pendingNote    = nil
-        WhereWeGoDB.currentNote    = nil
-        WhereWeGoDB.pendingNoteBase = nil
-
-        if IsInGroup() or IsInRaid() then
-            if WhereWeGoDB.noteBase then BuildAndShowNote() end
-            C_Timer.After(2.0, function()
-                BuildNoteFromActiveEntry(nil, nil, nil, nil)
-            end)
-        else
-            WhereWeGoDB.noteBase      = nil
-            WhereWeGoDB.currentLeader = nil
-        end
-
-        -- Hook the invite confirmation dialog (the popup shown after leader accepts).
-        -- Try multiple possible frame names — dialog was renamed in WoW Midnight.
-        C_Timer.After(1.0, function()
-            local dialog = LFGListInviteDialog
-                        or (_G and (_G["LFGListInviteDialog"]
-                                 or _G["PremadeGroupsInviteDialog"]
-                                 or _G["GroupFinderInviteDialog"]))
-            if not dialog then
-                print("|cff4499ffWWG:|r invite dialog frame not found — name may have changed in Midnight")
-                return
-            end
-            dialog:HookScript("OnShow", function(self)
-                -- Scan ALL font strings in the dialog recursively for a dungeon name.
-                -- Child widget names changed in WoW Midnight so we can't rely on named fields.
-                local function ScanForDungeonName(frame, depth)
-                    if depth > 5 then return end
-                    -- Check FontString regions on this frame
-                    for _, region in ipairs({frame:GetRegions()}) do
-                        if region.GetText then
-                            local txt = strtrim(region:GetText() or "")
-                            if txt ~= "" and not IsPlaceholder(txt) then
-                                local base = strtrim(txt:match("^(.-)%s*%(") or txt)
-                                if KO_TO_EN_DUNGEON[base] or KO_TO_EN_DUNGEON[txt] then
-                                    if not pendingActName then pendingActName = txt end
-                                elseif not pendingTitle then
-                                    pendingTitle = txt
-                                end
-                            end
-                        end
-                    end
-                    -- Recurse into child frames
-                    for _, child in ipairs({frame:GetChildren()}) do
-                        ScanForDungeonName(child, depth + 1)
-                    end
-                end
-                ScanForDungeonName(self, 0)
-
-                -- Fallback: GetApplications at show time (data is fresh)
-                if not pendingActName and C_LFGList and C_LFGList.GetApplications then
-                    local apps = C_LFGList.GetApplications()
-                    for _, app in ipairs(apps or {}) do
-                        local info = (type(app) == "table") and app or
-                                     (C_LFGList.GetApplicationInfo and C_LFGList.GetApplicationInfo(app))
-                        if info and info.activityID and info.activityID ~= 0 then
-                            local name = GetActivityName(info.activityID)
-                            if name and name ~= "" then
-                                pendingActName = name
-                                break
-                            end
-                        end
-                    end
-                end
-
-                -- Print to chat so you can see dungeon info even before the frame appears
-                local displayName = pendingActName or pendingTitle or "?"
-                local msg = "|cff4499ffWhereWeGo:|r " .. displayName
-                if pendingLeader and pendingLeader ~= "" then
-                    msg = msg .. " — [Leader] " .. pendingLeader
-                end
-                print(msg)
-            end)
-        end)
-
-    elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
-        -- Fires when leader accepts our application = the invite popup appears.
-        -- This is our last reliable chance to resolve pendingActName before GROUP_JOINED
-        -- clears the search result from memory.
-
-        -- Path 1: GetApplications() gives us the activityID directly.
-        if C_LFGList and C_LFGList.GetApplications then
-            local apps = C_LFGList.GetApplications()
-            for _, app in ipairs(apps or {}) do
-                local appInfo = (type(app) == "table") and app or
-                                (C_LFGList.GetApplicationInfo and C_LFGList.GetApplicationInfo(app))
-                if appInfo then
-                    local status = appInfo.status or ""
-                    if status == "invited" or status == "inviteDeclined" or status == "invitePending" then
-                        local actID = appInfo.activityID
-                        if actID and actID ~= 0 then
-                            local name = GetActivityName(actID)
-                            if name and name ~= "" then
-                                pendingActName = name
-                            end
-                        end
-                        -- Do NOT call CaptureListingInfo here — at invite time info.name
-                        -- can return the locale placeholder (e.g. "무엇인가"), overwriting
-                        -- the correct title captured at apply-time.
-                        break
-                    end
-                end
-            end
-        end
-
-        -- Path 2 (fallback): if pendingActName is still nil but we have the search result ID,
-        -- re-query GetSearchResultInfo for activityID only (NOT title, to avoid the
-        -- placeholder-overwrite bug). The search result is still valid at this point
-        -- (before GROUP_JOINED fires).
-        if not pendingActName and pendingSearchID and C_LFGList and C_LFGList.GetSearchResultInfo then
-            local info = C_LFGList.GetSearchResultInfo(pendingSearchID)
-            if info then
-                local actID = info.activityID
-                if (not actID or actID == 0) and info.activityIDs and #info.activityIDs > 0 then
-                    actID = info.activityIDs[1]
-                end
-                if actID and actID ~= 0 then
+            C_AddOns.GetAddOnMetadata("WhereWeGo","Version") or "?"
+        print("|cff4499ffWhereWeGo|r v"..ver.." loaded  /wwg for help")
+        -- Hook apply/signup now (safe inside event handler)
+        if C_LFGList then
+            if C_LFGList.ApplyToGroup then
+                hooksecurefunc(C_LFGList, "ApplyToGroup", function(id)
+                    if not C_LFGList.GetSearchResultInfo then return end
+                    local ok, info = pcall(C_LFGList.GetSearchResultInfo, id)
+                    if not ok or not info then return end
+                    local actID = (info.activityIDs and #info.activityIDs > 0)
+                                  and info.activityIDs[1] or info.activityID
                     local name = GetActivityName(actID)
                     if name and name ~= "" then
-                        pendingActName = name
+                        pendingDungeon = name
+                    end
+                end)
+            end
+            if C_LFGList.SignUpForGroup then
+                hooksecurefunc(C_LFGList, "SignUpForGroup", function(id)
+                    if not C_LFGList.GetSearchResultInfo then return end
+                    local ok, info = pcall(C_LFGList.GetSearchResultInfo, id)
+                    if not ok or not info then return end
+                    local actID = (info.activityIDs and #info.activityIDs > 0)
+                                  and info.activityIDs[1] or info.activityID
+                    local name = GetActivityName(actID)
+                    if name and name ~= "" then
+                        pendingDungeon = name
+                    end
+                end)
+            end
+        end
+        -- If already in group on login, restore note
+        if (IsInGroup() or IsInRaid()) and WhereWeGoDB.note then
+            ns:Show(WhereWeGoDB.note)
+        end
+
+    elseif event == "LFG_PROPOSAL_SHOW" then
+        -- Random LFG queue path
+        local ok, exists, _, _, _, name = pcall(GetLFGProposal)
+        if ok and exists and type(name) == "string" and name ~= "" then
+            pendingDungeon = name
+            local leader = GetLeader()
+            pendingLFGNote = BuildLines(name, leader)
+            print("|cff4499ffWhereWeGo:|r " .. name)
+        end
+
+    elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
+        -- Invite accepted — try to resolve activityID one more time
+        if pendingDungeon then return end
+        if C_LFGList and C_LFGList.GetApplications then
+            local ok, apps = pcall(C_LFGList.GetApplications)
+            if ok and apps then
+                for _, app in ipairs(apps) do
+                    local appInfo = (type(app) == "table") and app or
+                        (C_LFGList.GetApplicationInfo and C_LFGList.GetApplicationInfo(app))
+                    if appInfo and appInfo.activityID and appInfo.activityID ~= 0 then
+                        local name = GetActivityName(appInfo.activityID)
+                        if name and name ~= "" then
+                            pendingDungeon = name
+                            break
+                        end
                     end
                 end
             end
+        end
+
+    elseif event == "LFG_LIST_ACTIVE_ENTRY_UPDATED" then
+        -- Group creator path (never gets GROUP_JOINED)
+        if not (C_LFGList and C_LFGList.GetActiveEntryInfo) then return end
+        local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
+        if not ok or not info then return end
+        local actIDs = info.activityIDs
+        local actID  = (actIDs and #actIDs > 0) and actIDs[1] or info.activityID
+        local name = GetActivityName(actID)
+        if name and name ~= "" and WhereWeGoDB then
+            ShowNote(name, GetLeader(), true)
         end
 
     elseif event == "GROUP_JOINED" then
-        -- Always start fresh
-        WhereWeGoDB.noteBase      = nil
-        WhereWeGoDB.currentLeader = nil
-
-        -- Grab and immediately consume all apply-time captured data
-        local an, t, c, l = pendingActName, pendingTitle, pendingComment, pendingLeader
+        local dungeon = pendingLFGNote and pendingDungeon or pendingDungeon
         local lfgNote = pendingLFGNote
-        pendingActName  = nil
-        pendingTitle    = nil
-        pendingComment  = nil
-        pendingLeader   = nil
-        pendingLFGNote  = nil
-        -- Keep pendingSearchID until GROUP_LEFT in case we need it
+        pendingDungeon = nil
+        pendingLFGNote = nil
+
+        local leader = GetLeader()
 
         if lfgNote then
-            -- LFG dungeon finder path: note was captured at LFG_PROPOSAL_SHOW time.
-            -- Use it directly — GetActiveEntryInfo won't have activity data for queue groups.
-            WhereWeGoDB.noteBase      = lfgNote
-            WhereWeGoDB.currentLeader = GetActualLeader()
-            BuildAndShowNote(true)
+            -- LFG queue: we already have the note built
+            if WhereWeGoDB then
+                WhereWeGoDB.note    = lfgNote
+                WhereWeGoDB.leader  = leader
+                WhereWeGoDB.dungeon = dungeon
+            end
+            ns:Show(lfgNote)
+        elseif dungeon and dungeon ~= "" then
+            ShowNote(dungeon, leader, true)
         else
-            -- Premade Group Finder / direct invite path.
-            -- Wait for GetActiveEntryInfo to sync (1st attempt at 2s).
-            -- If dungeon is still unknown after that, ZONE_CHANGED_NEW_AREA will
-            -- upgrade the note automatically once the player enters the instance.
-            C_Timer.After(2.0, function()
+            -- No info yet — try active entry after a short delay
+            C_Timer.After(2, function()
                 if not (IsInGroup() or IsInRaid()) then return end
-                BuildNoteFromActiveEntry(an, t, c, l)
+                -- Try GetActiveEntryInfo
+                local actName
+                if C_LFGList and C_LFGList.GetActiveEntryInfo then
+                    local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
+                    if ok and info then
+                        local ids = info.activityIDs
+                        local id  = (ids and #ids > 0) and ids[1] or info.activityID
+                        actName = GetActivityName(id)
+                    end
+                end
+                -- Fall back to GetInstanceInfo if inside instance
+                if not actName or actName == "" then
+                    local iName, iType = GetInstanceInfo()
+                    if iName and iName ~= "" and iType ~= "none" then
+                        actName = iName
+                    end
+                end
+                ShowNote(actName, GetLeader(), actName ~= nil)
             end)
         end
 
     elseif event == "PARTY_LEADER_CHANGED" then
-        if WhereWeGoDB.noteBase and (IsInGroup() or IsInRaid()) then
-            local leader = GetActualLeader()
-            if leader then
-                WhereWeGoDB.currentLeader = leader
-                BuildAndShowNote()
-            end
+        if WhereWeGoDB and WhereWeGoDB.dungeon and (IsInGroup() or IsInRaid()) then
+            ShowNote(WhereWeGoDB.dungeon, GetLeader(), false)
         end
 
     elseif event == "GROUP_LEFT" then
-        -- Safe to clear everything
-        WhereWeGoDB.noteBase      = nil
-        WhereWeGoDB.currentLeader = nil
-        WhereWeGoDB.currentNote   = nil
-        pendingActName = nil
-        pendingTitle   = nil
-        pendingComment = nil
-        pendingLeader  = nil
-        pendingSearchID = nil
+        pendingDungeon = nil
         pendingLFGNote = nil
-        ns:HideNote()
-
-    elseif event == "LFG_PROPOSAL_SHOW" then
-        -- Random LFG (dungeon finder): GetLFGProposal has the name.
-        -- Store in pendingLFGNote — NOT directly in noteBase — so that GROUP_JOINED's
-        -- cleanup (noteBase = nil) doesn't destroy it before we can display it.
-        local ok, proposalExists, id, typeID, subtypeID, pName = pcall(GetLFGProposal)
-        if ok and proposalExists and type(pName) == "string" and pName ~= "" then
-            local parts = {}
-            table.insert(parts, "|cff4499ff[LFG]|r " .. pName)
-            local zone = GetDungeonZone(pName)
-            if zone then table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r") end
-            pendingLFGNote = table.concat(parts, "\n")
-            print("|cff4499ffWhereWeGo:|r " .. pName .. (zone and " — " .. zone or ""))
+        if WhereWeGoDB then
+            WhereWeGoDB.dungeon = nil
+            WhereWeGoDB.leader  = nil
+            WhereWeGoDB.note    = nil
         end
+        ns:Hide()
 
     elseif event == "ZONE_CHANGED_NEW_AREA" then
-        -- Fires when the player enters a new zone or instance.
-        -- If the note is showing "(dungeon unknown)", try to upgrade it now that
-        -- GetInstanceInfo() can return the actual dungeon name.
         if not (IsInGroup() or IsInRaid()) then return end
-        if not (WhereWeGoDB and WhereWeGoDB.noteBase) then return end
-        if not WhereWeGoDB.noteBase:find("dungeon unknown", 1, true) then return end
-
-        local instanceName, instanceType = GetInstanceInfo()
-        if instanceName and instanceName ~= "" and instanceType ~= "none" then
-            -- Rebuild note with the real dungeon name
-            local parts = {}
-            table.insert(parts, "|cff00cc66" .. instanceName .. "|r")
-            local enName = TranslateToEnglish(instanceName)
-            if enName then table.insert(parts, "|cffcccccc" .. enName .. "|r") end
-            local zone = GetDungeonZone(instanceName)
-            if zone then table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r") end
-            WhereWeGoDB.noteBase = table.concat(parts, "\n")
-            BuildAndShowNote(true)  -- print to chat now that we have the real name
-        end
-
-    elseif event == "LFG_LIST_ACTIVE_ENTRY_UPDATED" then
-        -- Fires when the player creates or updates their own group listing.
-        -- The creator never gets GROUP_JOINED, so this is the only reliable trigger.
-        local entryInfo = C_LFGList and C_LFGList.GetActiveEntryInfo and C_LFGList.GetActiveEntryInfo()
-        if entryInfo and entryInfo.activityIDs and #entryInfo.activityIDs > 0 then
-            local actName = GetActivityName(entryInfo.activityIDs[1])
-            if actName and actName ~= "" then
-                local parts = {}
-                table.insert(parts, "|cff00cc66" .. actName .. "|r")
-                local enName = TranslateToEnglish(actName)
-                if enName and enName ~= actName then
-                    table.insert(parts, "|cffcccccc" .. enName .. "|r")
-                end
-                local zone = GetDungeonZone(actName)
-                if zone then table.insert(parts, "|cffddaa00[Location] " .. zone .. "|r") end
-                WhereWeGoDB.noteBase = table.concat(parts, "\n")
-                local actualLeader = GetActualLeader()
-                if actualLeader then WhereWeGoDB.currentLeader = actualLeader end
-                BuildAndShowNote(true)
-            end
+        if not (WhereWeGoDB and WhereWeGoDB.note) then return end
+        if not WhereWeGoDB.note:find("dungeon unknown", 1, true) then return end
+        local iName, iType = GetInstanceInfo()
+        if iName and iName ~= "" and iType ~= "none" then
+            ShowNote(iName, GetLeader(), true)
         end
     end
 end)
-
