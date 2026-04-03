@@ -165,6 +165,7 @@ local wasInGroup     = false -- for GROUP_ROSTER_UPDATE dedup
 
 -- Shared logic for GROUP_JOINED / GROUP_ROSTER_UPDATE
 local function OnGroupJoined()
+    print("|cff888888WWG OnGroupJoined called, pendingDungeon=" .. tostring(pendingDungeon) .. "|r")
     local dungeon = pendingDungeon
     local lfgNote = pendingLFGNote
     pendingDungeon = nil
@@ -183,9 +184,10 @@ local function OnGroupJoined()
     elseif dungeon and dungeon ~= "" then
         ShowNote(dungeon, leader, true)
     else
-        -- No LFG info — poll after a short delay
+        print("|cff888888WWG no dungeon — starting 2s timer|r")
         C_Timer.After(2, function()
             if not (IsInGroup() or IsInRaid()) then return end
+            print("|cff888888WWG timer fired, in group|r")
             local actName
             if C_LFGList and C_LFGList.GetActiveEntryInfo then
                 local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
@@ -201,10 +203,10 @@ local function OnGroupJoined()
                     actName = iName
                 end
             end
+            print("|cff888888WWG timer actName=" .. tostring(actName) .. "|r")
             if actName and actName ~= "" then
                 ShowNote(actName, GetLeader(), true)
             else
-                -- Still unknown — show frame so user knows addon is active
                 ShowNote(nil, GetLeader(), false)
             end
         end)
@@ -253,7 +255,7 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         print("  pendingLFGNote=" .. tostring(pendingLFGNote))
         print("  stored dungeon=" .. tostring(WhereWeGoDB and WhereWeGoDB.dungeon))
         print("  leader=" .. tostring(WhereWeGoDB and WhereWeGoDB.leader))
-        print("  InGroup="..tostring(IsInGroup()).."  InRaid="..tostring(IsInRaid()))
+        print("  InGroup="..tostring(IsInGroup()).."  InRaid="..tostring(IsInRaid()).."  wasInGroup="..tostring(wasInGroup))
         print("  GetLFGActivityFullNameFromID=" .. tostring(GetLFGActivityFullNameFromID ~= nil))
         if C_LFGList then
             print("  ApplyToGroup=" .. tostring(C_LFGList.ApplyToGroup ~= nil))
@@ -439,13 +441,14 @@ f:SetScript("OnEvent", function(_, event, ...)
         end
 
     elseif event == "GROUP_JOINED" then
+        print("|cff888888WWG GROUP_JOINED fired|r")
         wasInGroup = true
         OnGroupJoined()
 
     elseif event == "GROUP_ROSTER_UPDATE" then
         local nowIn = IsInGroup() or IsInRaid()
+        print("|cff888888WWG GROUP_ROSTER_UPDATE nowIn=" .. tostring(nowIn) .. " wasInGroup=" .. tostring(wasInGroup) .. "|r")
         if nowIn and not wasInGroup then
-            -- just joined — GROUP_JOINED may not have fired
             OnGroupJoined()
         elseif not nowIn and wasInGroup then
             wasInGroup = false
