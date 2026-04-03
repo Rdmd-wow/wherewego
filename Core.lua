@@ -95,6 +95,13 @@ local function GetLeader()
             return (r and r ~= "") and (n.."-"..r) or n
         end
     end
+    -- Fallback: return party1 name (likely the inviter/leader)
+    if UnitExists("party1") then
+        local n, r = UnitName("party1")
+        if n and n ~= "" then
+            return (r and r ~= "") and (n.."-"..r) or n
+        end
+    end
 end
 
 local function GetActivityName(actID)
@@ -333,19 +340,45 @@ f:SetScript("OnEvent", function(_, event, ...)
         end
 
     elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
-        -- Invite accepted — try to resolve activityID one more time
-        if pendingDungeon then return end
-        if C_LFGList and C_LFGList.GetApplications then
+        -- Args: applicationID, newStatus
+        local appID, status = ...
+        -- Try using the event's applicationID directly
+        if C_LFGList and appID and type(appID) == "number" then
+            if C_LFGList.GetApplicationInfo then
+                local ok, info = pcall(C_LFGList.GetApplicationInfo, appID)
+                if ok and info then
+                    local actID = info.activityID or (info.activityIDs and info.activityIDs[1])
+                    if actID and actID ~= 0 then
+                        local name = GetActivityName(actID)
+                        if name and name ~= "" then pendingDungeon = name end
+                    end
+                end
+            end
+            -- Also try treating appID as a search result ID
+            if not pendingDungeon and C_LFGList.GetSearchResultInfo then
+                local ok, info = pcall(C_LFGList.GetSearchResultInfo, appID)
+                if ok and info then
+                    local actID = (info.activityIDs and #info.activityIDs > 0)
+                                  and info.activityIDs[1] or info.activityID
+                    if actID and actID ~= 0 then
+                        local name = GetActivityName(actID)
+                        if name and name ~= "" then pendingDungeon = name end
+                    end
+                end
+            end
+        end
+        -- Fallback: scan all applications
+        if not pendingDungeon and C_LFGList and C_LFGList.GetApplications then
             local ok, apps = pcall(C_LFGList.GetApplications)
             if ok and apps then
                 for _, app in ipairs(apps) do
                     local appInfo = (type(app) == "table") and app or
-                        (C_LFGList.GetApplicationInfo and C_LFGList.GetApplicationInfo(app))
-                    if appInfo and appInfo.activityID and appInfo.activityID ~= 0 then
-                        local name = GetActivityName(appInfo.activityID)
-                        if name and name ~= "" then
-                            pendingDungeon = name
-                            break
+                        (C_LFGList.GetApplicationInfo and select(2, pcall(C_LFGList.GetApplicationInfo, app)))
+                    if appInfo then
+                        local actID = appInfo.activityID or (appInfo.activityIDs and appInfo.activityIDs[1])
+                        if actID and actID ~= 0 then
+                            local name = GetActivityName(actID)
+                            if name and name ~= "" then pendingDungeon = name break end
                         end
                     end
                 end
