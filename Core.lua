@@ -149,11 +149,60 @@ local function ShowNote(dungeon, leader, printChat)
     end
 end
 
+-- Shared logic for GROUP_JOINED / GROUP_ROSTER_UPDATE
+local function OnGroupJoined()
+    local dungeon = pendingDungeon
+    local lfgNote = pendingLFGNote
+    pendingDungeon = nil
+    pendingLFGNote = nil
+    wasInGroup     = true
+
+    local leader = GetLeader()
+
+    if lfgNote then
+        if WhereWeGoDB then
+            WhereWeGoDB.note    = lfgNote
+            WhereWeGoDB.leader  = leader
+            WhereWeGoDB.dungeon = dungeon
+        end
+        ns:Show(lfgNote)
+    elseif dungeon and dungeon ~= "" then
+        ShowNote(dungeon, leader, true)
+    else
+        -- No LFG info — poll after a short delay
+        C_Timer.After(2, function()
+            if not (IsInGroup() or IsInRaid()) then return end
+            local actName
+            if C_LFGList and C_LFGList.GetActiveEntryInfo then
+                local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
+                if ok and info then
+                    local ids = info.activityIDs
+                    local id  = (ids and #ids > 0) and ids[1] or info.activityID
+                    actName = GetActivityName(id)
+                end
+            end
+            if not actName or actName == "" then
+                local iName, iType = GetInstanceInfo()
+                if iName and iName ~= "" and iType ~= "none" then
+                    actName = iName
+                end
+            end
+            if actName and actName ~= "" then
+                ShowNote(actName, GetLeader(), true)
+            else
+                -- Still unknown — show frame so user knows addon is active
+                ShowNote(nil, GetLeader(), false)
+            end
+        end)
+    end
+end
+
 ------------------------------------------------------------------------
 -- Pending state (captured before GROUP_JOINED)
 ------------------------------------------------------------------------
 local pendingDungeon = nil
 local pendingLFGNote = nil   -- from LFG_PROPOSAL_SHOW path
+local wasInGroup     = false -- for GROUP_ROSTER_UPDATE dedup
 
 ------------------------------------------------------------------------
 -- Slash commands  (registered at top of execution, cannot be blocked)
@@ -222,6 +271,7 @@ end
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
 f:RegisterEvent("GROUP_JOINED")
+f:RegisterEvent("GROUP_ROSTER_UPDATE")   -- backup: fires on any roster change
 f:RegisterEvent("GROUP_LEFT")
 f:RegisterEvent("PARTY_LEADER_CHANGED")
 f:RegisterEvent("LFG_PROPOSAL_SHOW")
@@ -267,7 +317,8 @@ f:SetScript("OnEvent", function(_, event, ...)
             end
         end
         -- If already in group on login, restore note
-        if (IsInGroup() or IsInRaid()) and WhereWeGoDB.note then
+        wasInGroup = IsInGroup() or IsInRaid()
+        if wasInGroup and WhereWeGoDB.note then
             ns:Show(WhereWeGoDB.note)
         end
 
@@ -314,46 +365,16 @@ f:SetScript("OnEvent", function(_, event, ...)
         end
 
     elseif event == "GROUP_JOINED" then
-        local dungeon = pendingLFGNote and pendingDungeon or pendingDungeon
-        local lfgNote = pendingLFGNote
-        pendingDungeon = nil
-        pendingLFGNote = nil
+        wasInGroup = true
+        OnGroupJoined()
 
-        local leader = GetLeader()
-
-        if lfgNote then
-            -- LFG queue: we already have the note built
-            if WhereWeGoDB then
-                WhereWeGoDB.note    = lfgNote
-                WhereWeGoDB.leader  = leader
-                WhereWeGoDB.dungeon = dungeon
-            end
-            ns:Show(lfgNote)
-        elseif dungeon and dungeon ~= "" then
-            ShowNote(dungeon, leader, true)
-        else
-            -- No info yet — try active entry after a short delay
-            C_Timer.After(2, function()
-                if not (IsInGroup() or IsInRaid()) then return end
-                -- Try GetActiveEntryInfo
-                local actName
-                if C_LFGList and C_LFGList.GetActiveEntryInfo then
-                    local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
-                    if ok and info then
-                        local ids = info.activityIDs
-                        local id  = (ids and #ids > 0) and ids[1] or info.activityID
-                        actName = GetActivityName(id)
-                    end
-                end
-                -- Fall back to GetInstanceInfo if inside instance
-                if not actName or actName == "" then
-                    local iName, iType = GetInstanceInfo()
-                    if iName and iName ~= "" and iType ~= "none" then
-                        actName = iName
-                    end
-                end
-                ShowNote(actName, GetLeader(), actName ~= nil)
-            end)
+    elseif event == "GROUP_ROSTER_UPDATE" then
+        local nowIn = IsInGroup() or IsInRaid()
+        if nowIn and not wasInGroup then
+            -- just joined — GROUP_JOINED may not have fired
+            OnGroupJoined()
+        elseif not nowIn and wasInGroup then
+            wasInGroup = false
         end
 
     elseif event == "PARTY_LEADER_CHANGED" then
@@ -364,6 +385,7 @@ f:SetScript("OnEvent", function(_, event, ...)
     elseif event == "GROUP_LEFT" then
         pendingDungeon = nil
         pendingLFGNote = nil
+        wasInGroup     = false
         if WhereWeGoDB then
             WhereWeGoDB.dungeon = nil
             WhereWeGoDB.leader  = nil
