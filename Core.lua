@@ -68,6 +68,21 @@ local ZONE = {
 }
 
 ------------------------------------------------------------------------
+-- ALL STATE — declared before every function that uses them
+------------------------------------------------------------------------
+local pendingDungeon     = nil   -- captured at apply / LFG proposal time
+local shownForThisGroup  = false -- prevents duplicate popups per group
+local wasInRealGroup     = false -- GetNumGroupMembers() > 0
+local prevGroupSize      = -1   -- for OnUpdate watcher (-1 = not init)
+local watcherTicks       = 0
+local watcherElapsed     = 0
+local debugMode          = false -- toggled by /wwg debug
+
+local function dbg(msg)
+    if debugMode then print("|cff888888" .. msg .. "|r") end
+end
+
+------------------------------------------------------------------------
 -- Helpers
 ------------------------------------------------------------------------
 local function Translate(name)
@@ -95,7 +110,6 @@ local function GetLeader()
             return (r and r ~= "") and (n.."-"..r) or n
         end
     end
-    -- Fallback: return party1 name (likely the inviter/leader)
     if UnitExists("party1") then
         local n, r = UnitName("party1")
         if n and n ~= "" then
@@ -124,6 +138,15 @@ local function GetActivityName(actID)
     end
 end
 
+local function CaptureActiveEntry()
+    if not (C_LFGList and C_LFGList.GetActiveEntryInfo) then return nil end
+    local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
+    if not ok or not info then return nil end
+    local ids = info.activityIDs
+    local id  = (ids and #ids > 0) and ids[1] or info.activityID
+    return GetActivityName(id)
+end
+
 local function BuildLines(dungeon, leader)
     local lines = {}
     if dungeon and dungeon ~= "" then
@@ -141,80 +164,330 @@ local function BuildLines(dungeon, leader)
     return table.concat(lines, "\n")
 end
 
-local function ShowNote(dungeon, leader, printChat)
-    if not WhereWeGoDB then return end
+------------------------------------------------------------------------
+-- ShowNote — popup + chat message (guarded by shownForThisGroup)
+------------------------------------------------------------------------
+local function ShowNote(dungeon, leader)
+    if shownForThisGroup then return end
+    shownForThisGroup = true
+    if not WhereWeGoDB then WhereWeGoDB = {} end
     local note = BuildLines(dungeon, leader)
     WhereWeGoDB.dungeon = dungeon
     WhereWeGoDB.leader  = leader
     WhereWeGoDB.note    = note
     ns:Show(note)
-    if printChat and dungeon and dungeon ~= "" then
+    local msg
+    if dungeon and dungeon ~= "" then
         local en = Translate(dungeon)
-        local msg = dungeon .. (en and (" / " .. en) or "")
-        if leader then msg = msg .. "  [파티장] " .. leader end
-        print("|cff4499ffWhereWeGo:|r " .. msg)
+        msg = dungeon .. (en and (" / " .. en) or "")
+        local zone = GetZone(dungeon)
+        if zone then msg = msg .. "  [" .. zone .. "]" end
+    else
+        msg = "(알 수 없는 던전)"
     end
+    if leader then msg = msg .. "  [파티장] " .. leader end
+    print("|cff4499ffWhereWeGo:|r " .. msg)
 end
 
 ------------------------------------------------------------------------
--- Pending state  (MUST be declared before any function that references them)
+-- OnGroupJoined — single entry point for all join triggers
 ------------------------------------------------------------------------
-local pendingDungeon = nil
-local pendingLFGNote = nil   -- from LFG_PROPOSAL_SHOW path
-local wasInGroup     = false -- for GROUP_ROSTER_UPDATE dedup
+local function OnGroupJoined(source)
+    dbg("WWG OnGroupJoined [" .. source .. "] pending=" .. tostring(pendingDungeon) .. " shown=" .. tostring(shownForThisGroup))
+    if shownForThisGroup then return end
+    wasInRealGroup = true
 
--- Shared logic for GROUP_JOINED / GROUP_ROSTER_UPDATE
-local function OnGroupJoined()
-    print("|cff888888WWG OnGroupJoined called, pendingDungeon=" .. tostring(pendingDungeon) .. "|r")
+    -- Try 1: dungeon captured at apply time
     local dungeon = pendingDungeon
-    local lfgNote = pendingLFGNote
     pendingDungeon = nil
-    pendingLFGNote = nil
-    wasInGroup     = true
+    if dungeon and dungeon ~= "" then
+        ShowNote(dungeon, GetLeader())
+        return
+    end
 
-    local leader = GetLeader()
+    -- Try 2: CaptureActiveEntry (group leader's listing)
+    dungeon = CaptureActiveEntry()
+    if dungeon and dungeon ~= "" then
+        ShowNote(dungeon, GetLeader())
+        return
+    end
 
-    if lfgNote then
-        if WhereWeGoDB then
-            WhereWeGoDB.note    = lfgNote
-            WhereWeGoDB.leader  = leader
-            WhereWeGoDB.dungeon = dungeon
-        end
-        ns:Show(lfgNote)
-    elseif dungeon and dungeon ~= "" then
-        ShowNote(dungeon, leader, true)
-    else
-        print("|cff888888WWG no dungeon — starting 2s timer|r")
-        C_Timer.After(2, function()
-            if not (IsInGroup() or IsInRaid()) then return end
-            print("|cff888888WWG timer fired, in group|r")
-            local actName
-            if C_LFGList and C_LFGList.GetActiveEntryInfo then
-                local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
-                if ok and info then
-                    local ids = info.activityIDs
-                    local id  = (ids and #ids > 0) and ids[1] or info.activityID
-                    actName = GetActivityName(id)
-                end
+    -- Try 3: instance info
+    local iName, iType = GetInstanceInfo()
+    if iName and iName ~= "" and iType ~= "none" then
+        ShowNote(iName, GetLeader())
+        return
+    end
+
+    -- Try 4: retry after 2s (roster/API may not be ready)
+    dbg("WWG no dungeon yet, retrying in 2s")
+    C_Timer.After(2, function()
+        local ok, err = pcall(function()
+            if shownForThisGroup then return end
+            local d = CaptureActiveEntry()
+            if not d or d == "" then
+                local n2, t2 = GetInstanceInfo()
+                if n2 and n2 ~= "" and t2 ~= "none" then d = n2 end
             end
-            if not actName or actName == "" then
-                local iName, iType = GetInstanceInfo()
-                if iName and iName ~= "" and iType ~= "none" then
-                    actName = iName
-                end
-            end
-            print("|cff888888WWG timer actName=" .. tostring(actName) .. "|r")
-            if actName and actName ~= "" then
-                ShowNote(actName, GetLeader(), true)
+            if d and d ~= "" then
+                ShowNote(d, GetLeader())
             else
-                ShowNote(nil, GetLeader(), false)
+                -- Try 5: one more retry at 5s total
+                C_Timer.After(3, function()
+                    pcall(function()
+                        if shownForThisGroup then return end
+                        local d2 = CaptureActiveEntry()
+                        if not d2 or d2 == "" then
+                            local n3, t3 = GetInstanceInfo()
+                            if n3 and n3 ~= "" and t3 ~= "none" then d2 = n3 end
+                        end
+                        ShowNote(d2, GetLeader())
+                    end)
+                end)
             end
         end)
-    end
+        if not ok then print("|cffff0000WWG retry err: " .. tostring(err) .. "|r") end
+    end)
 end
 
 ------------------------------------------------------------------------
--- Slash commands  (registered at top of execution, cannot be blocked)
+-- OnGroupLeft — cleanup state
+------------------------------------------------------------------------
+local function OnGroupLeft(source)
+    dbg("WWG OnGroupLeft [" .. source .. "]")
+    shownForThisGroup = false
+    wasInRealGroup    = false
+    pendingDungeon    = nil
+    if WhereWeGoDB then
+        WhereWeGoDB.dungeon = nil
+        WhereWeGoDB.leader  = nil
+        WhereWeGoDB.note    = nil
+    end
+    ns:Hide()
+end
+
+------------------------------------------------------------------------
+-- WATCHER FRAME — OnUpdate fallback (separate named frame)
+-- Polls GetNumGroupMembers() every 0.5s as a backup trigger.
+-- Delays 3s to give event-based triggers priority.
+------------------------------------------------------------------------
+local watcher = CreateFrame("Frame", "WhereWeGoWatcher", UIParent)
+watcher:Show()
+
+watcher:SetScript("OnUpdate", function(self, dt)
+    watcherElapsed = watcherElapsed + dt
+    if watcherElapsed < 0.5 then return end
+    watcherElapsed = 0
+    watcherTicks = watcherTicks + 1
+
+    if watcherTicks == 1 then
+        dbg("WWG watcher active (tick 1)")
+    end
+
+    local ok, err = pcall(function()
+        local n = GetNumGroupMembers()
+        if prevGroupSize < 0 then
+            prevGroupSize = n
+            return
+        end
+        -- Stop processing once popup has been shown
+        if shownForThisGroup then
+            prevGroupSize = n
+            return
+        end
+        if n > 0 and prevGroupSize == 0 then
+            dbg("WWG watcher: join " .. prevGroupSize .. "->" .. n)
+            C_Timer.After(3, function()
+                pcall(function()
+                    if not shownForThisGroup then
+                        OnGroupJoined("watcher")
+                    end
+                end)
+            end)
+        end
+        if n == 0 and prevGroupSize > 0 then
+            OnGroupLeft("watcher")
+        end
+        prevGroupSize = n
+    end)
+    if not ok then print("|cffff0000WWG watcher err: " .. tostring(err) .. "|r") end
+end)
+
+------------------------------------------------------------------------
+-- EVENT FRAME — group events + LFG hooks
+------------------------------------------------------------------------
+local ef = CreateFrame("Frame", "WhereWeGoEvents", UIParent)
+
+-- Register events with pcall so one bad event name doesn't block the rest
+local eventList = {
+    "PLAYER_LOGIN",
+    "GROUP_JOINED",
+    "GROUP_ROSTER_UPDATE",
+    "GROUP_LEFT",
+    "PARTY_LEADER_CHANGED",
+    "LFG_PROPOSAL_SHOW",
+    "LFG_LIST_ACTIVE_ENTRY_UPDATED",
+    "LFG_LIST_APPLICATION_STATUS_UPDATED",
+    "ZONE_CHANGED_NEW_AREA",
+}
+for _, ev in ipairs(eventList) do
+    pcall(ef.RegisterEvent, ef, ev)
+end
+
+ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
+    local ok, err = pcall(function()
+
+        -- Skip all events once popup is shown (except leave/login)
+        if shownForThisGroup and event ~= "GROUP_LEFT" and event ~= "PLAYER_LOGIN" then
+            return
+        end
+
+        if event == "PLAYER_LOGIN" then
+            if not WhereWeGoDB then WhereWeGoDB = {} end
+            ns:RestorePos()
+            local ver = (C_AddOns and C_AddOns.GetAddOnMetadata)
+                        and C_AddOns.GetAddOnMetadata("WhereWeGo", "Version") or "?"
+            dbg("WhereWeGo v" .. ver .. " loaded")
+
+            -- Hook LFG apply functions to capture dungeon at apply time
+            if C_LFGList then
+                local function captureApply(id)
+                    if not id then return end
+                    if C_LFGList.GetSearchResultInfo then
+                        local ok2, info = pcall(C_LFGList.GetSearchResultInfo, id)
+                        if ok2 and info then
+                            local actID = (info.activityIDs and #info.activityIDs > 0)
+                                          and info.activityIDs[1] or info.activityID
+                            local name = GetActivityName(actID)
+                            if name and name ~= "" then
+                                pendingDungeon = name
+                                dbg("WWG captured at apply: " .. name)
+                            end
+                        end
+                    end
+                end
+                for _, fn in ipairs({"ApplyToGroup", "SignUpForGroup", "RequestToJoin"}) do
+                    if C_LFGList[fn] then
+                        hooksecurefunc(C_LFGList, fn, captureApply)
+                    end
+                end
+            end
+
+            -- If already in group on login, restore note
+            wasInRealGroup = GetNumGroupMembers() > 0
+            prevGroupSize  = GetNumGroupMembers()
+            if wasInRealGroup then
+                shownForThisGroup = true
+                if WhereWeGoDB.note then ns:Show(WhereWeGoDB.note) end
+            end
+
+        elseif event == "LFG_PROPOSAL_SHOW" then
+            local ok2, exists, _, _, _, name = pcall(GetLFGProposal)
+            if ok2 and exists and type(name) == "string" and name ~= "" then
+                pendingDungeon = name
+                dbg("WWG LFG proposal: " .. name)
+            end
+
+        elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
+            local appID, status = a1, a2
+            dbg("WWG appStatus: id=" .. tostring(appID) .. " st=" .. tostring(status))
+            if pendingDungeon then return end
+            -- Try to capture dungeon from application
+            if C_LFGList and appID and type(appID) == "number" then
+                if C_LFGList.GetSearchResultInfo then
+                    local ok2, info = pcall(C_LFGList.GetSearchResultInfo, appID)
+                    if ok2 and info then
+                        local actID = (info.activityIDs and #info.activityIDs > 0)
+                                      and info.activityIDs[1] or info.activityID
+                        if actID and actID ~= 0 then
+                            local name = GetActivityName(actID)
+                            if name and name ~= "" then
+                                pendingDungeon = name
+                                dbg("WWG captured via appStatus: " .. name)
+                            end
+                        end
+                    end
+                end
+            end
+            if not pendingDungeon then
+                local ae = CaptureActiveEntry()
+                if ae and ae ~= "" then
+                    pendingDungeon = ae
+                    dbg("WWG captured activeEntry at appStatus: " .. ae)
+                end
+            end
+
+        elseif event == "LFG_LIST_ACTIVE_ENTRY_UPDATED" then
+            -- Group creator path (listing updated = party filling up)
+            if not (C_LFGList and C_LFGList.GetActiveEntryInfo) then return end
+            local ok2, info = pcall(C_LFGList.GetActiveEntryInfo)
+            if not ok2 or not info then return end
+            local actIDs = info.activityIDs
+            local actID  = (actIDs and #actIDs > 0) and actIDs[1] or info.activityID
+            local name = GetActivityName(actID)
+            if name and name ~= "" then
+                pendingDungeon = name
+            end
+
+        elseif event == "GROUP_JOINED" then
+            dbg("WWG EVENT: GROUP_JOINED members=" .. tostring(GetNumGroupMembers()) .. " pending=" .. tostring(pendingDungeon))
+            OnGroupJoined("GROUP_JOINED")
+
+        elseif event == "GROUP_ROSTER_UPDATE" then
+            local n = GetNumGroupMembers()
+            dbg("WWG EVENT: GROUP_ROSTER_UPDATE n=" .. n .. " was=" .. tostring(wasInRealGroup))
+            if n > 0 and not wasInRealGroup then
+                OnGroupJoined("GROUP_ROSTER_UPDATE")
+            elseif n == 0 and wasInRealGroup then
+                OnGroupLeft("GROUP_ROSTER_UPDATE")
+            end
+
+        elseif event == "GROUP_LEFT" then
+            dbg("WWG EVENT: GROUP_LEFT")
+            -- Reset state so the NEXT join is detected by all triggers.
+            -- Don't clear pendingDungeon — Midnight fires GROUP_LEFT
+            -- during personal→party transitions.
+            shownForThisGroup = false
+            wasInRealGroup    = false
+            prevGroupSize     = 0
+            ns:Hide()
+
+        elseif event == "PARTY_LEADER_CHANGED" then
+            if WhereWeGoDB and WhereWeGoDB.dungeon and GetNumGroupMembers() > 0 then
+                local saved = shownForThisGroup
+                shownForThisGroup = false
+                ShowNote(WhereWeGoDB.dungeon, GetLeader())
+                if not WhereWeGoDB.dungeon then shownForThisGroup = saved end
+            end
+
+        elseif event == "ZONE_CHANGED_NEW_AREA" then
+            if GetNumGroupMembers() <= 0 then return end
+            if shownForThisGroup then return end
+            local iName, iType = GetInstanceInfo()
+            if iName and iName ~= "" and iType ~= "none" then
+                ShowNote(iName, GetLeader())
+            end
+        end
+    end)
+    if not ok then
+        print("|cffff0000WWG ERROR [" .. event .. "]: " .. tostring(err) .. "|r")
+    end
+end)
+
+------------------------------------------------------------------------
+-- Load message (Silvermoonmap pattern: dedicated frame + PLAYER_ENTERING_WORLD)
+------------------------------------------------------------------------
+local _wwgFirstLoad = true
+local _wwgLoader = CreateFrame("Frame")
+_wwgLoader:RegisterEvent("PLAYER_ENTERING_WORLD")
+_wwgLoader:SetScript("OnEvent", function(self, event)
+    if _wwgFirstLoad then
+        _wwgFirstLoad = false
+    end
+end)
+
+------------------------------------------------------------------------
+-- Slash commands
 ------------------------------------------------------------------------
 SLASH_WHEREWEGO1 = "/wwg"
 SLASH_WHEREWEGO2 = "/wherewego"
@@ -228,10 +501,8 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         else
             print("|cff4499ffWhereWeGo:|r No active group note.")
         end
-
     elseif msg == "hide" then
         ns:Hide()
-
     elseif msg == "clear" then
         if WhereWeGoDB then
             WhereWeGoDB.dungeon = nil
@@ -240,46 +511,36 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         end
         ns:Hide()
         print("|cff4499ffWhereWeGo:|r Cleared.")
-
     elseif msg == "reset" then
         if WhereWeGoDB then WhereWeGoDB.pos = nil end
         ns.frame:ClearAllPoints()
         ns.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
         print("|cff4499ffWhereWeGo:|r Position reset.")
-
     elseif msg == "debug" then
+        debugMode = not debugMode
         local ver = C_AddOns and C_AddOns.GetAddOnMetadata and
             C_AddOns.GetAddOnMetadata("WhereWeGo","Version") or "?"
-        print("|cff4499ffWWG debug|r v"..ver)
+        print("|cff4499ffWWG debug|r v"..ver .. " — debug " .. (debugMode and "ON" or "OFF"))
         print("  pendingDungeon=" .. tostring(pendingDungeon))
-        print("  pendingLFGNote=" .. tostring(pendingLFGNote))
-        print("  stored dungeon=" .. tostring(WhereWeGoDB and WhereWeGoDB.dungeon))
+        print("  shownForThisGroup=" .. tostring(shownForThisGroup))
+        print("  wasInRealGroup=" .. tostring(wasInRealGroup))
+        print("  prevGroupSize=" .. tostring(prevGroupSize))
+        print("  watcherTicks=" .. tostring(watcherTicks))
+        print("  members=" .. tostring(GetNumGroupMembers()))
+        print("  stored=" .. tostring(WhereWeGoDB and WhereWeGoDB.dungeon))
         print("  leader=" .. tostring(WhereWeGoDB and WhereWeGoDB.leader))
-        print("  InGroup="..tostring(IsInGroup()).."  InRaid="..tostring(IsInRaid()).."  wasInGroup="..tostring(wasInGroup))
-        print("  GetLFGActivityFullNameFromID=" .. tostring(GetLFGActivityFullNameFromID ~= nil))
-        if C_LFGList then
-            print("  ApplyToGroup=" .. tostring(C_LFGList.ApplyToGroup ~= nil))
-            print("  SignUpForGroup=" .. tostring(C_LFGList.SignUpForGroup ~= nil))
-            print("  RequestToJoin=" .. tostring(C_LFGList.RequestToJoin ~= nil))
-            print("  GetSearchResultInfo=" .. tostring(C_LFGList.GetSearchResultInfo ~= nil))
-            print("  GetApplicationInfo=" .. tostring(C_LFGList.GetApplicationInfo ~= nil))
-            print("  GetApplications=" .. tostring(C_LFGList.GetApplications ~= nil))
-            print("  GetActivityInfoTable=" .. tostring(C_LFGList.GetActivityInfoTable ~= nil))
-            print("  GetActiveEntryInfo=" .. tostring(C_LFGList.GetActiveEntryInfo ~= nil))
-            -- Try active entry now
-            if C_LFGList.GetActiveEntryInfo then
-                local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
-                if ok and info then
-                    local ids = info.activityIDs
-                    local id  = (ids and #ids > 0) and ids[1] or info.activityID
-                    print("  activeEntry actID=" .. tostring(id))
-                    if id then print("  activeEntry name=" .. tostring(GetActivityName(id))) end
-                else
-                    print("  activeEntry=nil/error")
-                end
+        if C_LFGList and C_LFGList.GetActiveEntryInfo then
+            local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
+            if ok and info then
+                local ids = info.activityIDs
+                local id  = (ids and #ids > 0) and ids[1] or info.activityID
+                print("  activeEntry=" .. tostring(GetActivityName(id)))
+            else
+                print("  activeEntry=nil")
             end
         end
-
+        -- Show test popup
+        ns:Show("|cff4499ffWWG test|r\nPopup works! v" .. ver)
     else
         local ver = C_AddOns and C_AddOns.GetAddOnMetadata and
             C_AddOns.GetAddOnMetadata("WhereWeGo","Version") or "?"
@@ -291,192 +552,3 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         print("  |cffffff00/wwg debug|r — debug info")
     end
 end
-
-------------------------------------------------------------------------
--- Event handler
-------------------------------------------------------------------------
-local f = CreateFrame("Frame")
-f:RegisterEvent("PLAYER_LOGIN")
-f:RegisterEvent("GROUP_JOINED")
-f:RegisterEvent("GROUP_ROSTER_UPDATE")   -- backup: fires on any roster change
-f:RegisterEvent("GROUP_LEFT")
-f:RegisterEvent("PARTY_LEADER_CHANGED")
-f:RegisterEvent("LFG_PROPOSAL_SHOW")
-f:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATED")
-f:RegisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED")
-f:RegisterEvent("PLAYER_ROLES_ASSIGNED")  -- fires after role check accepted
-f:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-
-f:SetScript("OnEvent", function(_, event, ...)
-
-    if event == "PLAYER_LOGIN" then
-        if not WhereWeGoDB then WhereWeGoDB = {} end
-        ns:RestorePos()
-        local ver = C_AddOns and C_AddOns.GetAddOnMetadata and
-            C_AddOns.GetAddOnMetadata("WhereWeGo","Version") or "?"
-        print("|cff4499ffWhereWeGo|r v"..ver.." By Rdmdp-Tichondrius  /wwg for help")
-        -- Hook apply/signup now (safe inside event handler)
-        if C_LFGList then
-            local function captureFromSearchResult(id)
-                if not id then return end
-                if C_LFGList.GetSearchResultInfo then
-                    local ok, info = pcall(C_LFGList.GetSearchResultInfo, id)
-                    if ok and info then
-                        local actID = (info.activityIDs and #info.activityIDs > 0)
-                                      and info.activityIDs[1] or info.activityID
-                        local name = GetActivityName(actID)
-                        if name and name ~= "" then
-                            pendingDungeon = name
-                            print("|cff4499ffWWG:|r captured: " .. name)
-                        end
-                    end
-                end
-            end
-            -- Hook whichever apply function exists
-            for _, fn in ipairs({"ApplyToGroup","SignUpForGroup","RequestToJoin"}) do
-                if C_LFGList[fn] then
-                    hooksecurefunc(C_LFGList, fn, captureFromSearchResult)
-                end
-            end
-        end
-        -- If already in group on login, restore note
-        wasInGroup = IsInGroup() or IsInRaid()
-        if wasInGroup and WhereWeGoDB.note then
-            ns:Show(WhereWeGoDB.note)
-        end
-
-    elseif event == "LFG_PROPOSAL_SHOW" then
-        -- Random LFG queue path
-        local ok, exists, _, _, _, name = pcall(GetLFGProposal)
-        if ok and exists and type(name) == "string" and name ~= "" then
-            pendingDungeon = name
-            local leader = GetLeader()
-            pendingLFGNote = BuildLines(name, leader)
-            print("|cff4499ffWhereWeGo:|r " .. name)
-        end
-
-    elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
-        -- Args: applicationID, newStatus
-        local appID, status = ...
-        print("|cff888888WWG appStatus:|r appID=" .. tostring(appID) .. " status=" .. tostring(status))
-        -- Try using the event's applicationID directly
-        if C_LFGList and appID and type(appID) == "number" then
-            if C_LFGList.GetApplicationInfo then
-                local ok, info = pcall(C_LFGList.GetApplicationInfo, appID)
-                if ok and info then
-                    local actID = info.activityID or (info.activityIDs and info.activityIDs[1])
-                    print("|cff888888WWG appInfo:|r actID=" .. tostring(actID))
-                    if actID and actID ~= 0 then
-                        local name = GetActivityName(actID)
-                        if name and name ~= "" then
-                            pendingDungeon = name
-                            print("|cff4499ffWWG:|r captured via appInfo: " .. name)
-                        end
-                    end
-                end
-            end
-            if not pendingDungeon and C_LFGList.GetSearchResultInfo then
-                local ok, info = pcall(C_LFGList.GetSearchResultInfo, appID)
-                if ok and info then
-                    local actID = (info.activityIDs and #info.activityIDs > 0)
-                                  and info.activityIDs[1] or info.activityID
-                    if actID and actID ~= 0 then
-                        local name = GetActivityName(actID)
-                        if name and name ~= "" then
-                            pendingDungeon = name
-                            print("|cff4499ffWWG:|r captured via searchResult: " .. name)
-                        end
-                    end
-                end
-            end
-        end
-        if not pendingDungeon and C_LFGList and C_LFGList.GetApplications then
-            local ok, apps = pcall(C_LFGList.GetApplications)
-            if ok and apps then
-                for _, app in ipairs(apps) do
-                    local appInfo = (type(app) == "table") and app or
-                        (C_LFGList.GetApplicationInfo and select(2, pcall(C_LFGList.GetApplicationInfo, app)))
-                    if appInfo then
-                        local actID = appInfo.activityID or (appInfo.activityIDs and appInfo.activityIDs[1])
-                        if actID and actID ~= 0 then
-                            local name = GetActivityName(actID)
-                            if name and name ~= "" then
-                                pendingDungeon = name
-                                print("|cff4499ffWWG:|r captured via apps scan: " .. name)
-                                break
-                            end
-                        end
-                    end
-                end
-            end
-        end
-
-    elseif event == "PLAYER_ROLES_ASSIGNED" then
-        -- Fires after role check is confirmed, right before GROUP_JOINED
-        -- Good last chance to capture dungeon name
-        if pendingDungeon then return end
-        if C_LFGList and C_LFGList.GetActiveEntryInfo then
-            local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
-            if ok and info then
-                local ids = info.activityIDs
-                local id  = (ids and #ids > 0) and ids[1] or info.activityID
-                local name = GetActivityName(id)
-                if name and name ~= "" then
-                    pendingDungeon = name
-                    print("|cff4499ffWWG:|r captured via roles assigned: " .. name)
-                end
-            end
-        end
-
-    elseif event == "LFG_LIST_ACTIVE_ENTRY_UPDATED" then
-        -- Group creator path (never gets GROUP_JOINED)
-        if not (C_LFGList and C_LFGList.GetActiveEntryInfo) then return end
-        local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
-        if not ok or not info then return end
-        local actIDs = info.activityIDs
-        local actID  = (actIDs and #actIDs > 0) and actIDs[1] or info.activityID
-        local name = GetActivityName(actID)
-        if name and name ~= "" and WhereWeGoDB then
-            ShowNote(name, GetLeader(), true)
-        end
-
-    elseif event == "GROUP_JOINED" then
-        print("|cff888888WWG GROUP_JOINED fired|r")
-        wasInGroup = true
-        OnGroupJoined()
-
-    elseif event == "GROUP_ROSTER_UPDATE" then
-        local nowIn = IsInGroup() or IsInRaid()
-        print("|cff888888WWG GROUP_ROSTER_UPDATE nowIn=" .. tostring(nowIn) .. " wasInGroup=" .. tostring(wasInGroup) .. "|r")
-        if nowIn and not wasInGroup then
-            OnGroupJoined()
-        elseif not nowIn and wasInGroup then
-            wasInGroup = false
-        end
-
-    elseif event == "PARTY_LEADER_CHANGED" then
-        if WhereWeGoDB and WhereWeGoDB.dungeon and (IsInGroup() or IsInRaid()) then
-            ShowNote(WhereWeGoDB.dungeon, GetLeader(), false)
-        end
-
-    elseif event == "GROUP_LEFT" then
-        pendingDungeon = nil
-        pendingLFGNote = nil
-        wasInGroup     = false
-        if WhereWeGoDB then
-            WhereWeGoDB.dungeon = nil
-            WhereWeGoDB.leader  = nil
-            WhereWeGoDB.note    = nil
-        end
-        ns:Hide()
-
-    elseif event == "ZONE_CHANGED_NEW_AREA" then
-        if not (IsInGroup() or IsInRaid()) then return end
-        if not (WhereWeGoDB and WhereWeGoDB.note) then return end
-        if not WhereWeGoDB.note:find("dungeon unknown", 1, true) then return end
-        local iName, iType = GetInstanceInfo()
-        if iName and iName ~= "" and iType ~= "none" then
-            ShowNote(iName, GetLeader(), true)
-        end
-    end
-end)

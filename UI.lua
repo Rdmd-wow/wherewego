@@ -42,7 +42,7 @@ local label = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 label:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -3)
 label:SetPoint("RIGHT", frame, "RIGHT", -28, 0)
 label:SetJustifyH("LEFT")
-label:SetWordWrap(false)
+label:SetWordWrap(true)
 
 ------------------------------------------------------------------------
 -- Public API
