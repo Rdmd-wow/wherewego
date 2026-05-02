@@ -197,16 +197,17 @@ local function OnGroupJoined(source)
     if shownForThisGroup then return end
     wasInRealGroup = true
 
-    -- Try 1: dungeon captured at apply time
-    local dungeon = pendingDungeon
-    pendingDungeon = nil
+    -- Try 1: CaptureActiveEntry (the actual group we joined)
+    local dungeon = CaptureActiveEntry()
     if dungeon and dungeon ~= "" then
+        pendingDungeon = nil
         ShowNote(dungeon, GetLeader())
         return
     end
 
-    -- Try 2: CaptureActiveEntry (group leader's listing)
-    dungeon = CaptureActiveEntry()
+    -- Try 2: pendingDungeon (fallback from apply hook)
+    dungeon = pendingDungeon
+    pendingDungeon = nil
     if dungeon and dungeon ~= "" then
         ShowNote(dungeon, GetLeader())
         return
