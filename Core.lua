@@ -70,8 +70,9 @@ local ZONE = {
 ------------------------------------------------------------------------
 -- ALL STATE — declared before every function that uses them
 ------------------------------------------------------------------------
-local pendingDungeon     = nil   -- captured at apply / LFG proposal time
-local pendingTitle       = nil   -- group listing title (e.g. "+14 Relaxodo", "Fresh")
+local pendingDungeon     = nil   -- set only when a specific group accepts us
+local pendingTitle       = nil   -- set only when a specific group accepts us
+local appliedGroups      = {}    -- [searchResultID] = {dungeon, title}
 local shownForThisGroup  = false -- prevents duplicate popups per group
 local wasInRealGroup     = false -- GetNumGroupMembers() > 0
 local prevGroupSize      = -1   -- for OnUpdate watcher (-1 = not init)
@@ -283,6 +284,7 @@ local function OnGroupLeft(source)
     wasInRealGroup    = false
     pendingDungeon    = nil
     pendingTitle      = nil
+    appliedGroups     = {}
     if WhereWeGoDB then
         WhereWeGoDB.dungeon = nil
         WhereWeGoDB.leader  = nil
@@ -385,14 +387,9 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
                             local actID = (info.activityIDs and #info.activityIDs > 0)
                                           and info.activityIDs[1] or info.activityID
                             local name = GetActivityName(actID)
-                            if name and name ~= "" then
-                                pendingDungeon = name
-                                dbg("WWG captured at apply: " .. name)
-                            end
-                            if info.name and info.name ~= "" then
-                                pendingTitle = info.name
-                                dbg("WWG captured title at apply: " .. info.name)
-                            end
+                            local title = (info.name and info.name ~= "") and info.name or nil
+                            appliedGroups[id] = { dungeon = name, title = title }
+                            dbg("WWG stored apply #" .. id .. ": " .. tostring(name) .. " / " .. tostring(title))
                         end
                     end
                 end
@@ -421,9 +418,21 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
         elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
             local appID, status = a1, a2
             dbg("WWG appStatus: id=" .. tostring(appID) .. " st=" .. tostring(status))
-            if pendingDungeon then return end
-            -- Try to capture dungeon and title from application
-            if C_LFGList and appID and type(appID) == "number" then
+
+            -- Look up from our applied groups map first
+            if appID and appliedGroups[appID] then
+                local g = appliedGroups[appID]
+                if g.dungeon and g.dungeon ~= "" then
+                    pendingDungeon = g.dungeon
+                end
+                if g.title then
+                    pendingTitle = g.title
+                end
+                dbg("WWG matched applied group #" .. appID .. ": " .. tostring(g.dungeon) .. " / " .. tostring(g.title))
+            end
+
+            -- Fallback: query the specific appID directly
+            if not pendingDungeon and C_LFGList and appID and type(appID) == "number" then
                 if C_LFGList.GetSearchResultInfo then
                     local ok2, info = pcall(C_LFGList.GetSearchResultInfo, appID)
                     if ok2 and info then
@@ -436,7 +445,7 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
                                 dbg("WWG captured via appStatus: " .. name)
                             end
                         end
-                        if info.name and info.name ~= "" then
+                        if not pendingTitle and info.name and info.name ~= "" then
                             pendingTitle = info.name
                             dbg("WWG captured title via appStatus: " .. info.name)
                         end
