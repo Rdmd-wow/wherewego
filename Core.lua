@@ -93,8 +93,21 @@ end
 
 local function GetZone(name)
     if not name then return nil end
-    local en = KO_EN[name] or name
-    return ZONE[en]
+    -- Direct match
+    local en = KO_EN[name]
+    if en and ZONE[en] then return ZONE[en] end
+    if ZONE[name] then return ZONE[name] end
+    -- Substring match against Korean keys
+    for ko, enName in pairs(KO_EN) do
+        if name:find(ko, 1, true) then
+            if ZONE[enName] then return ZONE[enName] end
+        end
+    end
+    -- Substring match against English keys
+    for enName, zone in pairs(ZONE) do
+        if name:find(enName, 1, true) then return zone end
+    end
+    return nil
 end
 
 local function GetLeader()
@@ -155,15 +168,15 @@ local function BuildLines(dungeon, leader, title)
         local en = Translate(dungeon)
         if en then lines[#lines+1] = "|cffcccccc" .. en .. "|r" end
         local zone = GetZone(dungeon)
-        if zone then lines[#lines+1] = "|cffddaa00[위치] " .. zone .. "|r" end
+        if zone then lines[#lines+1] = "|cffddaa00[Location] " .. zone .. "|r" end
     else
         lines[#lines+1] = "|cff888888(dungeon unknown)|r"
     end
     if title and title ~= "" then
-        lines[#lines+1] = "|cffff9900[제목] " .. title .. "|r"
+        lines[#lines+1] = "|cffff9900[Title] " .. title .. "|r"
     end
     if leader and leader ~= "" then
-        lines[#lines+1] = "|cff99bbff[파티장] " .. leader .. "|r"
+        lines[#lines+1] = "|cff99bbff[Leader] " .. leader .. "|r"
     end
     return table.concat(lines, "\n")
 end
@@ -188,10 +201,10 @@ local function ShowNote(dungeon, leader, title)
         local zone = GetZone(dungeon)
         if zone then msg = msg .. "  [" .. zone .. "]" end
     else
-        msg = "(알 수 없는 던전)"
+        msg = "(unknown dungeon)"
     end
     if title and title ~= "" then msg = msg .. "  [" .. title .. "]" end
-    if leader then msg = msg .. "  [파티장] " .. leader end
+    if leader then msg = msg .. "  [Leader] " .. leader end
     print("|cff4499ffWhereWeGo:|r " .. msg)
 end
 
