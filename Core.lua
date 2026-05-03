@@ -71,6 +71,7 @@ local ZONE = {
 -- ALL STATE — declared before every function that uses them
 ------------------------------------------------------------------------
 local pendingDungeon     = nil   -- captured at apply / LFG proposal time
+local pendingTitle       = nil   -- group listing title (e.g. "+14 Relaxodo", "Fresh")
 local shownForThisGroup  = false -- prevents duplicate popups per group
 local wasInRealGroup     = false -- GetNumGroupMembers() > 0
 local prevGroupSize      = -1   -- for OnUpdate watcher (-1 = not init)
@@ -147,7 +148,7 @@ local function CaptureActiveEntry()
     return GetActivityName(id)
 end
 
-local function BuildLines(dungeon, leader)
+local function BuildLines(dungeon, leader, title)
     local lines = {}
     if dungeon and dungeon ~= "" then
         lines[#lines+1] = "|cff00cc66" .. dungeon .. "|r"
@@ -158,6 +159,9 @@ local function BuildLines(dungeon, leader)
     else
         lines[#lines+1] = "|cff888888(dungeon unknown)|r"
     end
+    if title and title ~= "" then
+        lines[#lines+1] = "|cffff9900[제목] " .. title .. "|r"
+    end
     if leader and leader ~= "" then
         lines[#lines+1] = "|cff99bbff[파티장] " .. leader .. "|r"
     end
@@ -167,13 +171,14 @@ end
 ------------------------------------------------------------------------
 -- ShowNote — popup + chat message (guarded by shownForThisGroup)
 ------------------------------------------------------------------------
-local function ShowNote(dungeon, leader)
+local function ShowNote(dungeon, leader, title)
     if shownForThisGroup then return end
     shownForThisGroup = true
     if not WhereWeGoDB then WhereWeGoDB = {} end
-    local note = BuildLines(dungeon, leader)
+    local note = BuildLines(dungeon, leader, title)
     WhereWeGoDB.dungeon = dungeon
     WhereWeGoDB.leader  = leader
+    WhereWeGoDB.title   = title
     WhereWeGoDB.note    = note
     ns:Show(note)
     local msg
@@ -185,6 +190,7 @@ local function ShowNote(dungeon, leader)
     else
         msg = "(알 수 없는 던전)"
     end
+    if title and title ~= "" then msg = msg .. "  [" .. title .. "]" end
     if leader then msg = msg .. "  [파티장] " .. leader end
     print("|cff4499ffWhereWeGo:|r " .. msg)
 end
@@ -193,30 +199,34 @@ end
 -- OnGroupJoined — single entry point for all join triggers
 ------------------------------------------------------------------------
 local function OnGroupJoined(source)
-    dbg("WWG OnGroupJoined [" .. source .. "] pending=" .. tostring(pendingDungeon) .. " shown=" .. tostring(shownForThisGroup))
+    dbg("WWG OnGroupJoined [" .. source .. "] pending=" .. tostring(pendingDungeon) .. " title=" .. tostring(pendingTitle) .. " shown=" .. tostring(shownForThisGroup))
     if shownForThisGroup then return end
     wasInRealGroup = true
+
+    local title = pendingTitle
 
     -- Try 1: CaptureActiveEntry (the actual group we joined)
     local dungeon = CaptureActiveEntry()
     if dungeon and dungeon ~= "" then
         pendingDungeon = nil
-        ShowNote(dungeon, GetLeader())
+        pendingTitle = nil
+        ShowNote(dungeon, GetLeader(), title)
         return
     end
 
     -- Try 2: pendingDungeon (fallback from apply hook)
     dungeon = pendingDungeon
     pendingDungeon = nil
+    pendingTitle = nil
     if dungeon and dungeon ~= "" then
-        ShowNote(dungeon, GetLeader())
+        ShowNote(dungeon, GetLeader(), title)
         return
     end
 
     -- Try 3: instance info
     local iName, iType = GetInstanceInfo()
     if iName and iName ~= "" and iType ~= "none" then
-        ShowNote(iName, GetLeader())
+        ShowNote(iName, GetLeader(), title)
         return
     end
 
@@ -231,7 +241,7 @@ local function OnGroupJoined(source)
                 if n2 and n2 ~= "" and t2 ~= "none" then d = n2 end
             end
             if d and d ~= "" then
-                ShowNote(d, GetLeader())
+                ShowNote(d, GetLeader(), title)
             else
                 -- Try 5: one more retry at 5s total
                 C_Timer.After(3, function()
@@ -242,7 +252,7 @@ local function OnGroupJoined(source)
                             local n3, t3 = GetInstanceInfo()
                             if n3 and n3 ~= "" and t3 ~= "none" then d2 = n3 end
                         end
-                        ShowNote(d2, GetLeader())
+                        ShowNote(d2, GetLeader(), title)
                     end)
                 end)
             end
@@ -259,9 +269,11 @@ local function OnGroupLeft(source)
     shownForThisGroup = false
     wasInRealGroup    = false
     pendingDungeon    = nil
+    pendingTitle      = nil
     if WhereWeGoDB then
         WhereWeGoDB.dungeon = nil
         WhereWeGoDB.leader  = nil
+        WhereWeGoDB.title   = nil
         WhereWeGoDB.note    = nil
     end
     ns:Hide()
@@ -364,6 +376,10 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
                                 pendingDungeon = name
                                 dbg("WWG captured at apply: " .. name)
                             end
+                            if info.name and info.name ~= "" then
+                                pendingTitle = info.name
+                                dbg("WWG captured title at apply: " .. info.name)
+                            end
                         end
                     end
                 end
@@ -393,7 +409,7 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
             local appID, status = a1, a2
             dbg("WWG appStatus: id=" .. tostring(appID) .. " st=" .. tostring(status))
             if pendingDungeon then return end
-            -- Try to capture dungeon from application
+            -- Try to capture dungeon and title from application
             if C_LFGList and appID and type(appID) == "number" then
                 if C_LFGList.GetSearchResultInfo then
                     local ok2, info = pcall(C_LFGList.GetSearchResultInfo, appID)
@@ -406,6 +422,10 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
                                 pendingDungeon = name
                                 dbg("WWG captured via appStatus: " .. name)
                             end
+                        end
+                        if info.name and info.name ~= "" then
+                            pendingTitle = info.name
+                            dbg("WWG captured title via appStatus: " .. info.name)
                         end
                     end
                 end
@@ -457,7 +477,7 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
             if WhereWeGoDB and WhereWeGoDB.dungeon and GetNumGroupMembers() > 0 then
                 local saved = shownForThisGroup
                 shownForThisGroup = false
-                ShowNote(WhereWeGoDB.dungeon, GetLeader())
+                ShowNote(WhereWeGoDB.dungeon, GetLeader(), WhereWeGoDB.title)
                 if not WhereWeGoDB.dungeon then shownForThisGroup = saved end
             end
 
@@ -508,6 +528,7 @@ SlashCmdList["WHEREWEGO"] = function(msg)
         if WhereWeGoDB then
             WhereWeGoDB.dungeon = nil
             WhereWeGoDB.leader  = nil
+            WhereWeGoDB.title   = nil
             WhereWeGoDB.note    = nil
         end
         ns:Hide()
@@ -523,12 +544,14 @@ SlashCmdList["WHEREWEGO"] = function(msg)
             C_AddOns.GetAddOnMetadata("WhereWeGo","Version") or "?"
         print("|cff4499ffWWG debug|r v"..ver .. " — debug " .. (debugMode and "ON" or "OFF"))
         print("  pendingDungeon=" .. tostring(pendingDungeon))
+        print("  pendingTitle=" .. tostring(pendingTitle))
         print("  shownForThisGroup=" .. tostring(shownForThisGroup))
         print("  wasInRealGroup=" .. tostring(wasInRealGroup))
         print("  prevGroupSize=" .. tostring(prevGroupSize))
         print("  watcherTicks=" .. tostring(watcherTicks))
         print("  members=" .. tostring(GetNumGroupMembers()))
         print("  stored=" .. tostring(WhereWeGoDB and WhereWeGoDB.dungeon))
+        print("  title=" .. tostring(WhereWeGoDB and WhereWeGoDB.title))
         print("  leader=" .. tostring(WhereWeGoDB and WhereWeGoDB.leader))
         if C_LFGList and C_LFGList.GetActiveEntryInfo then
             local ok, info = pcall(C_LFGList.GetActiveEntryInfo)
