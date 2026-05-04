@@ -219,17 +219,8 @@ local function OnGroupJoined(source)
 
     local title = pendingTitle
 
-    -- Try 1: CaptureActiveEntry (the actual group we joined)
-    local dungeon = CaptureActiveEntry()
-    if dungeon and dungeon ~= "" then
-        pendingDungeon = nil
-        pendingTitle = nil
-        ShowNote(dungeon, GetLeader(), title)
-        return
-    end
-
-    -- Try 2: pendingDungeon (fallback from apply hook)
-    dungeon = pendingDungeon
+    -- Try 1: pendingDungeon (from the specific group that accepted us)
+    local dungeon = pendingDungeon
     pendingDungeon = nil
     pendingTitle = nil
     if dungeon and dungeon ~= "" then
@@ -237,10 +228,17 @@ local function OnGroupJoined(source)
         return
     end
 
-    -- Try 3: instance info
+    -- Try 2: instance info
     local iName, iType = GetInstanceInfo()
     if iName and iName ~= "" and iType ~= "none" then
         ShowNote(iName, GetLeader(), title)
+        return
+    end
+
+    -- Try 3: CaptureActiveEntry (our own listing — last resort, may be wrong)
+    dungeon = CaptureActiveEntry()
+    if dungeon and dungeon ~= "" then
+        ShowNote(dungeon, GetLeader(), title)
         return
     end
 
