@@ -417,6 +417,11 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
             local appID, status = a1, a2
             dbg("WWG appStatus: id=" .. tostring(appID) .. " st=" .. tostring(status))
 
+            -- Only capture info when we are INVITED to the group
+            local isInvited = (status == "invited" or status == "inviteaccepted"
+                or status == "invitedeclined")
+            if not isInvited then return end
+
             -- Look up from our applied groups map first
             if appID and appliedGroups[appID] then
                 local g = appliedGroups[appID]
@@ -426,7 +431,7 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
                 if g.title then
                     pendingTitle = g.title
                 end
-                dbg("WWG matched applied group #" .. appID .. ": " .. tostring(g.dungeon) .. " / " .. tostring(g.title))
+                dbg("WWG invited from group #" .. appID .. ": " .. tostring(g.dungeon) .. " / " .. tostring(g.title))
             end
 
             -- Fallback: query the specific appID directly
@@ -440,12 +445,12 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
                             local name = GetActivityName(actID)
                             if name and name ~= "" then
                                 pendingDungeon = name
-                                dbg("WWG captured via appStatus: " .. name)
+                                dbg("WWG captured via invite: " .. name)
                             end
                         end
                         if not pendingTitle and info.name and info.name ~= "" then
                             pendingTitle = info.name
-                            dbg("WWG captured title via appStatus: " .. info.name)
+                            dbg("WWG captured title via invite: " .. info.name)
                         end
                     end
                 end
@@ -454,7 +459,7 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
                 local ae = CaptureActiveEntry()
                 if ae and ae ~= "" then
                     pendingDungeon = ae
-                    dbg("WWG captured activeEntry at appStatus: " .. ae)
+                    dbg("WWG captured activeEntry at invite: " .. ae)
                 end
             end
 
