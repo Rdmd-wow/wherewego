@@ -624,7 +624,7 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
                             local actID = (info.activityIDs and #info.activityIDs > 0)
                                           and info.activityIDs[1] or info.activityID
                             local name = GetActivityName(actID)
-                            local title = (info.name and info.name ~= "") and info.name or nil
+                            local title = (info.comment and info.comment ~= "") and info.comment or nil
                             appliedGroups[id] = { dungeon = name, title = title }
                             dbg("WWG stored apply #" .. id .. ": " .. tostring(name) .. " / " .. tostring(title))
                         end
@@ -687,9 +687,9 @@ ef:SetScript("OnEvent", function(self, event, a1, a2, a3)
                                 dbg("WWG captured via invite: " .. name)
                             end
                         end
-                        if not pendingTitle and info.name and info.name ~= "" then
-                            pendingTitle = info.name
-                            dbg("WWG captured title via invite: " .. info.name)
+                        if not pendingTitle and info.comment and info.comment ~= "" then
+                            pendingTitle = info.comment
+                            dbg("WWG captured title via invite: " .. info.comment)
                         end
                     end
                 end
