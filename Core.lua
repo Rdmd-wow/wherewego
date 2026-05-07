@@ -89,7 +89,18 @@ end
 ------------------------------------------------------------------------
 local function Translate(name)
     if not name then return nil end
-    return KO_EN[name]
+    -- Direct match
+    if KO_EN[name] then return KO_EN[name] end
+    -- Substring match (activity names often include difficulty suffixes)
+    for ko, en in pairs(KO_EN) do
+        if name:find(ko, 1, true) then return en end
+    end
+    -- If name is already English (exists in ZONE table), no translation needed
+    if ZONE[name] then return nil end
+    for enName, _ in pairs(ZONE) do
+        if name:find(enName, 1, true) then return nil end
+    end
+    return nil
 end
 
 local function GetZone(name)
@@ -167,7 +178,7 @@ local function BuildLines(dungeon, leader, title)
     if dungeon and dungeon ~= "" then
         lines[#lines+1] = "|cff00cc66" .. dungeon .. "|r"
         local en = Translate(dungeon)
-        if en then lines[#lines+1] = "|cffcccccc" .. en .. "|r" end
+        if en then lines[#lines+1] = "|cff88ddff(EN) " .. en .. "|r" end
         local zone = GetZone(dungeon)
         if zone then lines[#lines+1] = "|cffddaa00[Location] " .. zone .. "|r" end
     else
